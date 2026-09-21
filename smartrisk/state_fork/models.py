@@ -26,6 +26,7 @@ class SimulationScenario:
     value_wei: int = 0
     gas_limit: int | None = None
     description: str = ""
+    observed_tokens: tuple[str, ...] = ()
 
     def rpc_transaction(self) -> dict[str, str]:
         tx: dict[str, str] = {

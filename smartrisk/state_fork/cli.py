@@ -29,6 +29,7 @@ def _scenario(item: dict[str, Any]) -> SimulationScenario:
         value_wei=int(item.get("value_wei", 0)),
         gas_limit=item.get("gas_limit"),
         description=item.get("description", ""),
+        observed_tokens=tuple(item.get("observed_tokens", [])),
     )
 
 

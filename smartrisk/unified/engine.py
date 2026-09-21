@@ -4,6 +4,7 @@ import uuid
 from typing import Any
 
 from ..heuristics.engine import HeuristicsEngine
+from ..core.models import AnalysisJob, SourceBundle, UnifiedAnchor
 from ..state_fork.engine import StateForkEngine
 from ..static_engine.engine import StaticEngine
 from .models import EngineSummary, UnifiedRequest, UnifiedRiskReport
@@ -92,6 +93,14 @@ class UnifiedRiskEngine:
 
         score, band, confidence, coverage = self._combine(summaries)
         status = "complete" if all(summary.status == "complete" for summary in summaries) else "partial" if any(summary.status in {"complete", "partial"} for summary in summaries) else "unknown"
+        job_anchor = self._anchor_from_summaries(summaries)
+        job = AnalysisJob.create(
+            chain_id=request.chain_id,
+            contract_address=request.token_address,
+            anchor=job_anchor,
+            source_bundle=SourceBundle(files=[request.project] if request.project else [], compiler_version=request.compiler_version),
+            policy_version=self.VERSION,
+        )
         return UnifiedRiskReport(
             run_id=run_id,
             status=status,
@@ -106,7 +115,26 @@ class UnifiedRiskEngine:
             unknowns=sorted(set(unknowns)),
             assumptions=assumptions,
             versions={"unified": self.VERSION, "static": "0.2.0", "fork": "0.2.0", "heuristics": "0.1.0"},
+            job=job.to_dict(),
         )
+
+    @staticmethod
+    def _anchor_from_summaries(summaries):
+        for summary in summaries:
+            report = summary.report
+            anchor = report.get("anchor") if isinstance(report, dict) else None
+            if not anchor:
+                continue
+            return UnifiedAnchor(
+                chain_id=str(anchor.get("chain_id", anchor.get("chainId", ""))),
+                block_number=int(anchor.get("block_number", anchor.get("blockNumber", 0))),
+                block_hash=anchor.get("block_hash", anchor.get("blockHash", "")),
+                parent_hash=anchor.get("parent_hash", anchor.get("parentHash")),
+                tag=anchor.get("finality", "safe"),
+                finality="explicit" if anchor.get("finality") == "explicit" else anchor.get("finality", "safe"),
+                timestamp=anchor.get("timestamp"),
+            )
+        return None
 
     @staticmethod
     def _static_score(report) -> float:

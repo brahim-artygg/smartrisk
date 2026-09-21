@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 from smartrisk.state_fork.engine import StateForkEngine
+from smartrisk.state_fork.anvil import AnvilFork
 from smartrisk.state_fork.models import BlockAnchor, HoneypotSequence, SimulationScenario, SimulationResult
 
 
@@ -104,3 +105,12 @@ def test_failed_buy_is_not_called_honeypot():
         [SimulationResult("buy", "reverted", ANCHOR)],
         HoneypotSequence("hp", SimulationScenario("buy", "0x1", "0x2"), SimulationScenario("sell", "0x1", "0x2")),
     ) == "buy_failed"
+
+
+def test_state_diff_calculates_native_and_token_deltas():
+    diff = AnvilFork._diff_state(
+        {"native_balance_wei": 100, "token_balances": {"0xtoken": 10}},
+        {"native_balance_wei": 70, "token_balances": {"0xtoken": 25}},
+    )
+    assert diff["delta"]["native_balance_delta_wei"] == -30
+    assert diff["delta"]["token_balance_delta"]["0xtoken"] == 15

@@ -107,6 +107,7 @@ class AnvilFork:
             self.revert(snapshot)
 
     def _execute_scenario(self, scenario: SimulationScenario, anchor: BlockAnchor) -> SimulationResult:
+        before_state = self._capture_state(scenario)
         try:
             # The sender is impersonated only inside the local fork. No
             # private key is created or transmitted to Alchemy.
@@ -119,11 +120,14 @@ class AnvilFork:
                 "reverted",
                 anchor,
                 error=str(exc),
+                state_diff={"before": before_state, "after": None, "delta": None},
                 assumptions=["transaction was not broadcast to the real network"],
             )
         receipt = self._wait_receipt(tx_hash)
         if not receipt:
             return SimulationResult(scenario.scenario_id, "unknown", anchor, tx_hash=tx_hash, error="receipt timeout")
+        after_state = self._capture_state(scenario)
+        state_diff = self._diff_state(before_state, after_state)
         succeeded = receipt.get("status") == "0x1"
         trace = None
         try:
@@ -138,8 +142,35 @@ class AnvilFork:
             receipt=receipt,
             trace=trace,
             logs=receipt.get("logs", []),
+            state_diff=state_diff,
             assumptions=["execution occurred only on a local Anvil fork"],
         )
+
+    def _capture_state(self, scenario: SimulationScenario) -> dict[str, Any]:
+        state: dict[str, Any] = {"address": scenario.from_address, "native_balance_wei": None, "token_balances": {}, "errors": []}
+        try:
+            state["native_balance_wei"] = int(self.rpc_request("eth_getBalance", [scenario.from_address, "latest"]), 16)
+        except Exception as exc:
+            state["errors"].append(f"native balance unavailable: {exc}")
+        for token in scenario.observed_tokens:
+            try:
+                data = "0x70a08231" + scenario.from_address.lower().removeprefix("0x").rjust(64, "0")
+                result = self.rpc_request("eth_call", [{"to": token, "data": data}, "latest"])
+                state["token_balances"][token] = int(result or "0x0", 16)
+            except Exception as exc:
+                state["token_balances"][token] = None
+                state["errors"].append(f"token balance unavailable for {token}: {exc}")
+        return state
+
+    @staticmethod
+    def _diff_state(before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
+        native_before, native_after = before.get("native_balance_wei"), after.get("native_balance_wei")
+        delta: dict[str, Any] = {"native_balance_delta_wei": native_after - native_before if native_before is not None and native_after is not None else None, "token_balance_delta": {}}
+        tokens = set(before.get("token_balances", {})) | set(after.get("token_balances", {}))
+        for token in tokens:
+            old, new = before.get("token_balances", {}).get(token), after.get("token_balances", {}).get(token)
+            delta["token_balance_delta"][token] = new - old if old is not None and new is not None else None
+        return {"before": before, "after": after, "delta": delta}
 
     def _wait_receipt(self, tx_hash: str, timeout: float = 15.0) -> dict[str, Any] | None:
         deadline = time.monotonic() + timeout

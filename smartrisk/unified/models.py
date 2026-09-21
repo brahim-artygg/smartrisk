@@ -54,6 +54,7 @@ class UnifiedRiskReport:
     unknowns: list[str] = field(default_factory=list)
     assumptions: list[str] = field(default_factory=list)
     versions: dict[str, str] = field(default_factory=dict)
+    job: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -72,6 +73,7 @@ class UnifiedRiskReport:
             "unknowns": self.unknowns,
             "assumptions": self.assumptions,
             "versions": self.versions,
+            "job": self.job,
         }
 
     def to_json(self) -> str:
