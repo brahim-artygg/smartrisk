@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import time
@@ -108,6 +109,13 @@ class AnvilFork:
 
     def _execute_scenario(self, scenario: SimulationScenario, anchor: BlockAnchor) -> SimulationResult:
         before_state = self._capture_state(scenario)
+        return_data = None
+        try:
+            return_data = self.rpc_request("eth_call", [scenario.rpc_transaction(), "latest"])
+        except Exception:
+            # A mutating transaction may be valid only with the fork's exact
+            # execution context; preserve the unknown return-data state.
+            pass
         try:
             # The sender is impersonated only inside the local fork. No
             # private key is created or transmitted to Alchemy.
@@ -120,6 +128,8 @@ class AnvilFork:
                 "reverted",
                 anchor,
                 error=str(exc),
+                revert_data=self._revert_selector(str(exc)),
+                return_data=return_data,
                 state_diff={"before": before_state, "after": None, "delta": None},
                 assumptions=["transaction was not broadcast to the real network"],
             )
@@ -134,6 +144,15 @@ class AnvilFork:
             trace = self.rpc_request("debug_traceTransaction", [tx_hash, {"tracer": "callTracer"}])
         except Exception as exc:
             trace = {"unavailable": str(exc)}
+        storage_trace = None
+        try:
+            storage_trace = self.rpc_request("debug_traceTransaction", [tx_hash, {"tracer": "prestateTracer", "tracerConfig": {"diffMode": True}}])
+        except Exception:
+            pass
+        receipt_gas = self._hex_int(receipt.get("gasUsed"))
+        gas_price = self._hex_int(receipt.get("effectiveGasPrice"))
+        if storage_trace is not None:
+            state_diff["storage_trace"] = storage_trace
         return SimulationResult(
             scenario.scenario_id,
             "success" if succeeded else "reverted",
@@ -141,10 +160,24 @@ class AnvilFork:
             tx_hash=tx_hash,
             receipt=receipt,
             trace=trace,
+            return_data=return_data,
+            revert_data=None if succeeded else self._revert_selector(str(receipt)),
             logs=receipt.get("logs", []),
             state_diff=state_diff,
-            assumptions=["execution occurred only on a local Anvil fork"],
+            assumptions=["execution occurred only on a local Anvil fork", f"gas_used={receipt_gas}", f"effective_gas_price={gas_price}"],
         )
+
+    @staticmethod
+    def _hex_int(value: Any) -> int | None:
+        try:
+            return int(value, 16) if isinstance(value, str) else int(value) if value is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _revert_selector(error: str) -> str | None:
+        match = re.search(r"0x[a-fA-F0-9]{8}", error)
+        return match.group(0) if match else None
 
     def _capture_state(self, scenario: SimulationScenario) -> dict[str, Any]:
         state: dict[str, Any] = {"address": scenario.from_address, "native_balance_wei": None, "token_balances": {}, "errors": []}

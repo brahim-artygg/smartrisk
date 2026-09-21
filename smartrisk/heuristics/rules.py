@@ -34,25 +34,43 @@ class RuleEngine:
         decisions: list[RuleDecision] = []
         unknowns: list[str] = []
         total = 0.0
+        family_totals: dict[str, float] = {}
+        hard_blocked = False
         for rule in self.rules:
+            config = self.policy.rule(rule.rule_id)
             missing = [name for name in rule.required if name not in index or index[name].value is None]
+            if self.policy.expired(rule.rule_id):
+                decisions.append(RuleDecision(rule.rule_id, "unknown", 0.0, "Rule is expired in the active policy", list(rule.required), unknown_reasons=["policy expiry reached"], references=config.get("references", [])))
+                unknowns.append(f"expired rule: {rule.rule_id}")
+                continue
             if missing:
                 reasons = []
                 for name in missing:
                     reasons.extend(index[name].unknown_reasons if name in index else [f"missing feature: {name}"])
-                decision = RuleDecision(rule.rule_id, "unknown", 0.0, "Required feature is unavailable", missing, unknown_reasons=reasons)
+                decisions.append(RuleDecision(rule.rule_id, "unknown", 0.0, "Required feature is unavailable", missing, unknown_reasons=reasons, references=config.get("references", [])))
                 unknowns.extend(reasons)
-                decisions.append(decision)
                 continue
             outcome, explanation = rule.evaluator(index)
-            contribution = self.policy.weight(rule.rule_id, rule.weight) if outcome == "triggered" else 0.0
-            total += contribution
-            decisions.append(RuleDecision(rule.rule_id, outcome, contribution, explanation, list(rule.required), evidence_refs=self._refs(rule.required, index)))
+            family = config.get("family", rule.rule_id.split(".")[0])
+            confidence_factor = float(config.get("confidence_factor", 1.0))
+            feature_confidence = sum(index[name].confidence for name in rule.required) / len(rule.required)
+            calibrated = "confidence_factor" in config
+            raw = self.policy.weight(rule.rule_id, rule.weight) * confidence_factor * feature_confidence if outcome == "triggered" and calibrated else self.policy.weight(rule.rule_id, rule.weight) if outcome == "triggered" else 0.0
+            cap = self.policy.family_cap(family)
+            contribution = min(raw, max(0.0, cap - family_totals.get(family, 0.0)))
+            family_totals[family] = family_totals.get(family, 0.0) + contribution
+            is_hard_block = bool(config.get("hard_block", False) and outcome == "triggered")
+            hard_blocked = hard_blocked or is_hard_block
+            if is_hard_block:
+                total = 100.0
+            else:
+                total += contribution
+            decisions.append(RuleDecision(rule.rule_id, outcome, contribution, explanation, list(rule.required), evidence_refs=self._refs(rule.required, index), references=config.get("references", []), hard_block=is_hard_block))
         coverage = sum(feature.coverage for feature in features) / len(features) if features else 0.0
         confidence = sum(feature.confidence * feature.coverage for feature in features) / sum(feature.coverage for feature in features) if any(feature.coverage for feature in features) else 0.0
-        score = min(100.0, round(total, 2))
-        band = "unknown" if coverage < 0.75 else ("critical" if score >= 70 else "high" if score >= 45 else "medium" if score >= 20 else "low")
-        return RiskScore(score, band, round(confidence, 3), round(coverage, 3), decisions, sorted(set(unknowns)), features, policy_version=self.policy.version)
+        score = 100.0 if hard_blocked else min(100.0, round(total, 2))
+        band = "critical" if hard_blocked else "unknown" if coverage < 0.75 else ("critical" if score >= 70 else "high" if score >= 45 else "medium" if score >= 20 else "low")
+        return RiskScore(score, band, round(confidence, 3), round(coverage, 3), decisions, sorted(set(unknowns)), features, policy_version=self.policy.version, hard_blocked=hard_blocked)
 
     @staticmethod
     def _refs(required, index):

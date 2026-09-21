@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 from typing import Any
 
 from ..state_fork.alchemy_rpc import AlchemyRpcError
@@ -8,6 +9,7 @@ from .alchemy_source import AlchemySource
 from .dexscreener import DexscreenerClient
 from .features import FeatureExtractor
 from .models import Feature, HeuristicsRun, RiskScore
+from .policy import PolicyRegistry
 from .rules import RuleEngine
 
 
@@ -20,11 +22,12 @@ class HeuristicsEngine:
         dexscreener: DexscreenerClient | None = None,
         extractor: FeatureExtractor | None = None,
         rules: RuleEngine | None = None,
+        policy_path: str | Path | None = None,
     ):
         self.alchemy = alchemy or AlchemySource()
         self.dexscreener = dexscreener or DexscreenerClient()
         self.extractor = extractor or FeatureExtractor()
-        self.rules = rules or RuleEngine()
+        self.rules = rules or RuleEngine(PolicyRegistry.load(policy_path))
 
     def analyze(
         self,

@@ -54,6 +54,8 @@ class RuleDecision:
     required_features: list[str]
     evidence_refs: list[str] = field(default_factory=list)
     unknown_reasons: list[str] = field(default_factory=list)
+    references: list[str] = field(default_factory=list)
+    hard_block: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -70,6 +72,7 @@ class RiskScore:
     features: list[Feature] = field(default_factory=list)
     observations: list[RawObservation] = field(default_factory=list)
     policy_version: str = "score-v0.1"
+    hard_blocked: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

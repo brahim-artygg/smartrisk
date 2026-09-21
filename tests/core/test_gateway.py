@@ -36,3 +36,17 @@ def test_raw_evidence_hash_is_deterministic_for_params():
     b = RawAlchemyEvidence.create("eth_chainId", "b", [], "0x1")
     assert a.params_hash == b.params_hash
     assert a.evidence_id != b.evidence_id
+
+
+def test_gateway_exposes_state_transaction_and_metadata_methods():
+    gateway = AlchemyGateway(FakeRpc())
+    gateway.eth_call({"to": "0xtoken", "data": "0x"})
+    gateway.get_storage_at("0xtoken", "0x0")
+    gateway.get_transaction("0xtx")
+    gateway.get_receipt("0xtx")
+    gateway.get_token_metadata("0xtoken")
+    gateway.get_asset_transfers({"fromBlock": "0x1", "toBlock": "0x2"})
+    assert {item.method for item in gateway.evidence} == {
+        "eth_call", "eth_getStorageAt", "eth_getTransactionByHash",
+        "eth_getTransactionReceipt", "alchemy_getTokenMetadata", "alchemy_getAssetTransfers",
+    }

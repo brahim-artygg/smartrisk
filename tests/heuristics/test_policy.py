@@ -13,4 +13,4 @@ def test_policy_registry_overrides_rule_weight():
     ])
     decision = next(item for item in score.decisions if item.rule_id == "market.low_liquidity")
     assert score.policy_version == "score-v0.2"
-    assert decision.contribution == 25
+    assert decision.contribution == 20

@@ -16,12 +16,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--block-tag", choices=["safe", "finalized", "latest"], default="safe")
     parser.add_argument("--block-number", type=int)
     parser.add_argument("--window-blocks", type=int, default=10_000)
+    parser.add_argument("--policy", type=Path, help="versioned JSON scoring policy")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    result = HeuristicsEngine().analyze(
+    result = HeuristicsEngine(policy_path=args.policy).analyze(
         args.chain_id,
         args.token_address,
         run_id=args.run_id,

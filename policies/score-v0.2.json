@@ -1,11 +1,15 @@
 {
   "version": "score-v0.2",
+  "families": {
+    "market": {"cap": 55},
+    "chain": {"cap": 45}
+  },
   "rules": {
-    "market.no_pair": {"weight": 35, "family": "market", "hard_block": false, "confidence_factor": 0.8},
-    "market.low_liquidity": {"weight": 25, "family": "market", "hard_block": false, "confidence_factor": 0.8},
-    "market.sell_activity_absent": {"weight": 25, "family": "market", "hard_block": false, "confidence_factor": 0.7},
-    "market.price_divergence": {"weight": 15, "family": "market", "hard_block": false, "confidence_factor": 0.7},
-    "market.stale_pair": {"weight": 8, "family": "market", "hard_block": false, "confidence_factor": 0.5},
-    "chain.no_contract_code": {"weight": 45, "family": "chain", "hard_block": true, "confidence_factor": 1.0}
+    "market.no_pair": {"weight": 35, "family": "market", "hard_block": false, "confidence_factor": 0.8, "references": ["dexscreener.token_pairs"]},
+    "market.low_liquidity": {"weight": 25, "family": "market", "hard_block": false, "confidence_factor": 0.8, "references": ["dexscreener.liquidity"]},
+    "market.sell_activity_absent": {"weight": 25, "family": "market", "hard_block": false, "confidence_factor": 0.7, "references": ["dexscreener.txns.h24"]},
+    "market.price_divergence": {"weight": 15, "family": "market", "hard_block": false, "confidence_factor": 0.7, "references": ["dexscreener.priceUsd"]},
+    "market.stale_pair": {"weight": 8, "family": "market", "hard_block": false, "confidence_factor": 0.5, "references": ["dexscreener.pairCreatedAt"]},
+    "chain.no_contract_code": {"weight": 45, "family": "chain", "hard_block": true, "confidence_factor": 1.0, "references": ["alchemy.eth_getCode"]}
   }
 }
