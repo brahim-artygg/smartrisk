@@ -263,3 +263,113 @@ smartrisk-fork tests/fixtures/honeypot-sequence.json \
 - نسخة السيناريو ونسخة المحرك.
 
 الـfixture الحالي هو `tests/fixtures/honeypot-sequence.json`. في بيئة بلا Alchemy/Anvil يرجع CLI `unknown` بأمان؛ الاختبار الفعلي يحتاج `ALCHEMY_API_KEY` وbinary `anvil`.
+
+
+# المحرك الثالث: On-chain Heuristics + Rule Scoring v0.1
+
+تمت إضافة محرك التسجيل النقطي الذي يدمج:
+
+- **Alchemy:** حقائق السلسلة، block anchor، runtime code، وlogs.
+- **Dexscreener:** ملاحظات السوق: pairs، liquidity، volume، buys/sells، prices، pair age.
+- **SmartRisk:** استخراج الميزات، evidence، coverage، confidence، وقواعد score versioned.
+
+## المعمارية
+
+```text
+AlchemySource ───────┐
+  chainId/block/code  │
+  logs                ├── FeatureExtractor ── RuleEngine(score-v0.1)
+DexscreenerClient ────┘                              │
+  token-pairs                                        ▼
+  liquidity/volume                              RiskScore + unknowns
+```
+
+### التشغيل
+
+```bash
+export ALCHEMY_API_KEY="..."
+
+smartrisk-score ethereum 0x... \
+  --block-tag safe \
+  --window-blocks 10000 \
+  --run-id score-mainnet \
+  --output artifacts/score.json
+```
+
+أو:
+
+```bash
+python -m smartrisk.heuristics ethereum 0x... \
+  --block-number 21000000 \
+  --output artifacts/score.json
+```
+
+يستخدم Dexscreener واجهة `token-pairs/v1/{chainId}/{tokenAddress}` مع cache TTL وretries. ويستطيع client أيضاً استدعاء pair lookup وsearch.
+
+## الميزات الحالية
+
+- `market.pair_count`
+- `market.best_liquidity_usd`
+- `market.volume_h24_usd`
+- `market.buys_h24`
+- `market.sells_h24`
+- `market.price_min_usd`
+- `market.price_max_usd`
+- `market.pair_age_hours`
+- `chain.token_has_code`
+- `chain.log_count_window`
+
+كل feature تحتوي على source وconfidence وcoverage وevidence references وunknown reasons.
+
+## القواعد الحالية
+
+- `market.no_pair` — لا يوجد pair معروف في استجابة Dexscreener.
+- `market.low_liquidity` — أفضل سيولة مرصودة أقل من 10,000 USD.
+- `market.sell_activity_absent` — توجد buys في نافذة h24 ولا توجد sells.
+- `market.price_divergence` — تباعد سعري بين الأزواج أكبر من 25%.
+- `market.stale_pair` — pair أقدم من سنة، كإشارة سياقية منخفضة الوزن.
+- `chain.no_contract_code` — Alchemy يعيد runtime code فارغاً.
+
+الدرجة تستخدم أوزاناً capped داخل `RuleEngine.VERSION = score-v0.1`، وتنتج band من `low` إلى `critical`. إذا كانت coverage أقل من 75% تصبح band `unknown` بدلاً من عرض درجة مطمئنة.
+
+## فصل مصادر الحقيقة
+
+- Alchemy هو المصدر المرجعي للـchain facts.
+- Dexscreener هو مصدر market observation فقط.
+- لا تُستخدم `priceUsd` أو `liquidity.usd` وحدها كإثبات شرعية أو قابلية بيع.
+- فشل Dexscreener لا يتحول إلى `market.no_pair`؛ ينتج feature ناقصة و`unknown`.
+- لا ينتج المحرك `pass` عند غياب Alchemy أو نقص البيانات الجوهرية.
+
+## الاختبارات
+
+```text
+17 passed
+```
+
+تغطي:
+
+- تجميع ميزات السوق والسلسلة.
+- low liquidity وغياب sell activity.
+- unknown عند timeout أو نقص Dexscreener.
+- عدم خلط فشل المزود مع غياب الزوج.
+- serializing evidence وrisk decisions.
+- CLI في بيئة بلا credentials.
+
+في البيئة الحالية لا توجد credentials لـAlchemy، لذلك يعطي التشغيل المحلي:
+
+```json
+{
+  "status": "unknown",
+  "risk": {
+    "band": "unknown",
+    "coverage": 0.0
+  }
+}
+```
+
+## الحدود الحالية
+
+- event ledger والحائزون وproxy/roles ستضاف في الإصدارات التالية.
+- لا يُعاد بناء liquidity أو volume محلياً بالكامل بعد؛ Dexscreener observation يجب cross-check مع Alchemy قبل hard evidence.
+- لا تستخدم القواعد الحالية بيانات reputational أو labels خارجية.
+- يجب مراجعة شروط Dexscreener الحالية قبل الاستخدام التجاري المباشر، خصوصاً قيد المنافسة وإعادة إتاحة البيانات.

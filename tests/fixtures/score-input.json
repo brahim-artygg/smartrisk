@@ -1,0 +1,6 @@
+{
+  "chain_id": "ethereum",
+  "token_address": "0x0000000000000000000000000000000000000003",
+  "block_tag": "safe",
+  "window_blocks": 10000
+}
