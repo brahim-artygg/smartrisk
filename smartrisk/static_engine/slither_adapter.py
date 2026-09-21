@@ -29,8 +29,11 @@ class SlitherAdapter:
     def available(self) -> bool:
         return shutil.which(self.executable) is not None
 
-    def run(self, project: Path) -> tuple[list[Finding], list[Evidence], list[str]]:
-        if not self.available():
+    def run(
+        self, project: Path, env: dict[str, str] | None = None
+    ) -> tuple[list[Finding], list[Evidence], list[str]]:
+        worker_env = env or os.environ.copy()
+        if not shutil.which(self.executable, path=worker_env.get("PATH")):
             raise SlitherUnavailable(f"{self.executable} was not found on PATH")
         with tempfile.TemporaryDirectory(prefix="smartrisk-slither-") as tmp:
             output = Path(tmp) / "slither.json"
@@ -42,6 +45,7 @@ class SlitherAdapter:
                     text=True,
                     timeout=self.timeout_seconds,
                     check=False,
+                    env=worker_env,
                 )
             except subprocess.TimeoutExpired as exc:
                 raise SlitherUnavailable("Slither timed out") from exc

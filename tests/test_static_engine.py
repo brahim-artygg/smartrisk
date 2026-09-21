@@ -1,14 +1,20 @@
 from pathlib import Path
 
+from smartrisk.static_engine.compiler_manager import CompilerManager, CompilerSelection
 from smartrisk.static_engine.engine import StaticEngine
 from smartrisk.static_engine.models import Evidence, Finding, SourceLocation
 
 
-ROOT = Path(__file__).parent / "fixtures"
+class FakeCompilerManager:
+    def inspect(self, project, requested=None):
+        return CompilerSelection(requested, ["^0.8.20"], "0.8.20", "/usr/bin/solc", "ready")
+
+    def environment(self, selection):
+        return {}
 
 
 class MissingSlither:
-    def run(self, project):
+    def run(self, project, env=None):
         raise RuntimeError("not used")
 
     def available(self):
@@ -39,10 +45,13 @@ def test_missing_slither_is_unknown_not_safe(tmp_path):
     (project / "Minimal.sol").write_text("pragma solidity ^0.8.20; contract X {}", encoding="utf-8")
 
     class Adapter:
-        def run(self, project):
-            raise __import__("smartrisk.static_engine.slither_adapter", fromlist=["SlitherUnavailable"]).SlitherUnavailable("missing")
+        def run(self, project, env=None):
+            from smartrisk.static_engine.slither_adapter import SlitherUnavailable
+            raise SlitherUnavailable("missing")
 
-    result = StaticEngine(slither=Adapter()).analyze(project, run_id="test-run")
+    result = StaticEngine(slither=Adapter(), compiler_manager=FakeCompilerManager()).analyze(
+        project, run_id="test-run"
+    )
     assert result.status == "unknown"
     assert result.findings == []
     assert result.unknown_reasons
@@ -52,3 +61,11 @@ def test_nonexistent_project_is_failed():
     result = StaticEngine(slither=MissingSlither()).analyze("/does/not/exist", run_id="missing")
     assert result.status == "failed"
     assert result.unknown_reasons
+
+
+def test_compiler_manager_extracts_pragma(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "A.sol").write_text("pragma solidity 0.8.20; contract A {}", encoding="utf-8")
+    manager = CompilerManager()
+    assert manager._pragma_constraints(project) == ["0.8.20"]
