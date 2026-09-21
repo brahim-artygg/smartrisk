@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from .models import Feature, RiskScore, RuleDecision
+from .policy import PolicyRegistry
 
 
 @dataclass(frozen=True)
@@ -17,7 +18,8 @@ class Rule:
 class RuleEngine:
     VERSION = "score-v0.1"
 
-    def __init__(self):
+    def __init__(self, policy: PolicyRegistry | None = None):
+        self.policy = policy or PolicyRegistry.load()
         self.rules = [
             Rule("market.no_pair", ("market.pair_count",), 35.0, self._no_pair),
             Rule("market.low_liquidity", ("market.best_liquidity_usd",), 25.0, self._low_liquidity),
@@ -43,14 +45,14 @@ class RuleEngine:
                 decisions.append(decision)
                 continue
             outcome, explanation = rule.evaluator(index)
-            contribution = rule.weight if outcome == "triggered" else 0.0
+            contribution = self.policy.weight(rule.rule_id, rule.weight) if outcome == "triggered" else 0.0
             total += contribution
             decisions.append(RuleDecision(rule.rule_id, outcome, contribution, explanation, list(rule.required), evidence_refs=self._refs(rule.required, index)))
         coverage = sum(feature.coverage for feature in features) / len(features) if features else 0.0
         confidence = sum(feature.confidence * feature.coverage for feature in features) / sum(feature.coverage for feature in features) if any(feature.coverage for feature in features) else 0.0
         score = min(100.0, round(total, 2))
         band = "unknown" if coverage < 0.75 else ("critical" if score >= 70 else "high" if score >= 45 else "medium" if score >= 20 else "low")
-        return RiskScore(score, band, round(confidence, 3), round(coverage, 3), decisions, sorted(set(unknowns)), features)
+        return RiskScore(score, band, round(confidence, 3), round(coverage, 3), decisions, sorted(set(unknowns)), features, policy_version=self.policy.version)
 
     @staticmethod
     def _refs(required, index):

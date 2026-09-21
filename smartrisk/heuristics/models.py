@@ -69,6 +69,7 @@ class RiskScore:
     unknowns: list[str] = field(default_factory=list)
     features: list[Feature] = field(default_factory=list)
     observations: list[RawObservation] = field(default_factory=list)
+    policy_version: str = "score-v0.1"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
