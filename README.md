@@ -373,3 +373,98 @@ python -m smartrisk.heuristics ethereum 0x... \
 - لا يُعاد بناء liquidity أو volume محلياً بالكامل بعد؛ Dexscreener observation يجب cross-check مع Alchemy قبل hard evidence.
 - لا تستخدم القواعد الحالية بيانات reputational أو labels خارجية.
 - يجب مراجعة شروط Dexscreener الحالية قبل الاستخدام التجاري المباشر، خصوصاً قيد المنافسة وإعادة إتاحة البيانات.
+
+
+# Unified Risk Engine v0.1
+
+تم دمج المحركات الثلاثة في Orchestrator موحد:
+
+```text
+Unified Risk Engine
+   ├── Static AST/IR
+   ├── State-Fork Simulation
+   └── On-chain Heuristics + Rule Scoring
+              ↓
+      Unified JSON Risk Report
+```
+
+## الواجهة الموحدة
+
+```bash
+smartrisk scan \
+  --project tests/fixtures/VulnerableToken.sol \
+  --chain-id ethereum \
+  --token-address 0x... \
+  --scenarios tests/fixtures/fork-scenario.json \
+  --honeypot tests/fixtures/honeypot-sequence.json \
+  --compiler-version 0.8.20 \
+  --block-tag safe \
+  --output artifacts/unified-risk.json
+```
+
+يمكن أيضاً استخدام config JSON:
+
+```json
+{
+  "project": "tests/fixtures/VulnerableToken.sol",
+  "chain_id": "ethereum",
+  "token_address": "0x...",
+  "scenarios": "tests/fixtures/fork-scenario.json",
+  "honeypot": "tests/fixtures/honeypot-sequence.json",
+  "block_tag": "safe",
+  "compiler_version": "0.8.20",
+  "window_blocks": 10000
+}
+```
+
+ثم:
+
+```bash
+smartrisk scan --config scan.json --output artifacts/unified-risk.json
+```
+
+## مخرج JSON النهائي
+
+يحتوي التقرير الموحد على:
+
+- `risk.score`
+- `risk.band`
+- `risk.confidence`
+- `risk.coverage`
+- نتائج كل محرك في `engines`
+- static findings في `findings`
+- fork وheuristics decisions في `decisions`
+- الأدلة الخام في `evidence`
+- `unknowns`
+- assumptions
+- إصدارات جميع المحركات والقواعد
+
+كل محرك يظل قابلاً للفحص بشكل مستقل داخل `engines[].report`، لذلك لا تضيع الأدلة أو أسباب القرار عند دمج الدرجة.
+
+### طريقة الدمج
+
+- Static findings تتحول إلى score حسب severity.
+- `sell_blocked` في Honeypot sequence يعطي contribution مرتفعاً.
+- Heuristics تستخدم score الخاص بـ`score-v0.1`.
+- أوزان الدمج الحالية:
+  - Static AST: 30%
+  - State-Fork: 40%
+  - Heuristics: 30%
+- إذا لم يتوفر أي محرك ينتج التقرير `unknown`.
+- إذا نقصت التغطية عن الحد المطلوب، لا ينتج المحرك band مطمئناً.
+- غياب مدخلات محرك لا يُعامل كـsafe.
+
+## الاختبارات
+
+```text
+20 passed
+```
+
+وتغطي:
+
+- تشغيل المحركات الثلاثة عبر orchestrator.
+- دمج static findings وfork decisions وheuristics features.
+- Unified score وband وcoverage.
+- دعم honeypot داخل Unified Engine.
+- CLI وconfig JSON.
+- مخرج unknown آمن عند غياب credentials أو مدخلات المحرك.

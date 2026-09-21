@@ -78,6 +78,7 @@ class HeuristicsEngine:
                 logs.observed_at, [logs.observation_id],
             ))
         risk = self.rules.score(features)
+        risk.observations = observations
         if diagnostics:
             risk.unknowns.extend(diagnostics)
         status = "complete" if risk.coverage >= 0.5 and not diagnostics and not risk.unknowns else "partial"

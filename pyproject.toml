@@ -12,6 +12,7 @@ requires-python = ">=3.11"
 smartrisk-static = "smartrisk.static_engine.cli:main"
 smartrisk-fork = "smartrisk.state_fork.cli:main"
 smartrisk-score = "smartrisk.heuristics.cli:main"
+smartrisk = "smartrisk.unified.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["smartrisk*"]
