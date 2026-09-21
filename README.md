@@ -207,3 +207,59 @@ python -m smartrisk.state_fork tests/fixtures/fork-scenario.json \
 - `debug_traceTransaction` اختياري لأن توفره يختلف حسب شبكة وخطة Alchemy.
 - استخدام `eth_sendTransaction` يتطلب حساباً impersonated داخل Anvil؛ لا توجد مفاتيح خاصة في المحرك.
 - لا ينبغي اعتبار نجاح scenario واحد دليلاً على قابلية البيع العامة؛ يجب بناء سيناريوهات buy/sell صحيحة وربطها لاحقاً بمحرك البيانات السوقية.
+
+
+## اختبارات متقدمة: Sell Simulation وHoneypot
+
+أضيف إلى محرك State-Fork دعم sequence حقيقية داخل نفس حالة Anvil:
+
+```text
+buy → optional approve → sell
+```
+
+كل sequence تبدأ بـsnapshot واحد، وتنُفذ خطوات الشراء والموافقة والبيع بالترتيب، ثم تعود إلى snapshot الأصلي بعد انتهاء الاختبار. هذا يمنع أن تؤثر اختبارات honeypot على بعضها أو على fork process التالي.
+
+### تشغيل honeypot عبر CLI
+
+```bash
+export ALCHEMY_API_KEY="..."
+
+smartrisk-fork tests/fixtures/honeypot-sequence.json \
+  --honeypot \
+  --block-tag safe \
+  --run-id honeypot-mainnet \
+  --output artifacts/honeypot.json
+```
+
+### التصنيف
+
+- `sell_succeeded`: نجح buy، وapprove عند وجوده، ثم نجح sell.
+- `sell_blocked`: نجح buy وapprove، ثم reverted sell داخل نفس fork state.
+- `buy_failed`: فشل الشراء؛ لا يتم تسميته honeypot لأن السيولة أو calldata أو السعر قد تكون غير صحيحة.
+- `unknown`: نقص RPC أو receipt أو trace أو لم تصل sequence إلى نتيجة sell قابلة للحكم.
+
+النتيجة لا تقول إن العقد احتيالي تلقائياً. `sell_blocked` هو finding قوي لقابلية البيع في السيناريو المحدد، ويجب حفظ calldata والـrouter والـpair والـanchor كأدلة.
+
+### سيناريوهات الاختبار التي يجب استخدامها
+
+1. **Basic buy/sell:** شراء بكمية صغيرة ثم بيع الرصيد المتوقع من نفس الحساب.
+2. **Approve flow:** buy ثم `approve(router, amount)` ثم sell عبر router.
+3. **Fee-on-transfer:** sell بنسبة من الرصيد، مع قياس token delta وnative delta.
+4. **Blacklist trap:** تنفيذ buy من حساب عادي ثم sell من الحساب نفسه، مع تسجيل revert selector.
+5. **Trading-open gate:** تكرار الاختبار مع block anchor قبل وبعد فتح التداول.
+6. **Cooldown/anti-bot:** تنفيذ buy ثم تقدم block محلياً ضمن policy ثم sell، مع تسجيل الفشل كافتراض زمني لا كحكم عام.
+7. **Low-liquidity control:** تمييز فشل السعر/السيولة عن revert في token transfer أو router.
+8. **Alternate route:** تجربة أكثر من pair/router عندما تكون العناوين معروفة من طبقة السوق، مع إبقاء كل محاولة دليلاً مستقلاً.
+
+### بيانات يجب تسجيلها لكل محاولة
+
+- chainId وblock number وblock hash.
+- buyer وtoken وrouter وpair.
+- calldata وvalue وgas limit.
+- receipt status وrevert data وlogs.
+- call trace عند توفره.
+- token/native balance deltas قبل وبعد كل خطوة.
+- سبب `unknown` أو `not_tested`.
+- نسخة السيناريو ونسخة المحرك.
+
+الـfixture الحالي هو `tests/fixtures/honeypot-sequence.json`. في بيئة بلا Alchemy/Anvil يرجع CLI `unknown` بأمان؛ الاختبار الفعلي يحتاج `ALCHEMY_API_KEY` وbinary `anvil`.

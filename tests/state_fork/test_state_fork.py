@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 from smartrisk.state_fork.engine import StateForkEngine
-from smartrisk.state_fork.models import BlockAnchor, SimulationScenario, SimulationResult
+from smartrisk.state_fork.models import BlockAnchor, HoneypotSequence, SimulationScenario, SimulationResult
 
 
 ANCHOR = BlockAnchor("0x1", 100, "0xblock", "0xparent", 123, "safe")
@@ -35,6 +35,13 @@ class FakeFork:
 
     def run_scenario(self, scenario, anchor):
         return SimulationResult(scenario.scenario_id, "success", anchor, tx_hash="0xtx")
+
+    def run_sequence(self, sequence, anchor):
+        return [
+            SimulationResult(sequence.buy.scenario_id, "success", anchor, tx_hash="0xbuy"),
+            *([SimulationResult(sequence.approve.scenario_id, "success", anchor, tx_hash="0xapprove")] if sequence.approve else []),
+            SimulationResult(sequence.sell.scenario_id, "reverted", anchor, tx_hash="0xsell", error="transfer blocked"),
+        ]
 
     def stop(self):
         self.stopped = True
@@ -72,3 +79,28 @@ def test_missing_alchemy_is_unknown():
     result = StateForkEngine(rpc=MissingRpc(), fork=FakeFork()).analyze([])
     assert result.status == "unknown"
     assert result.unknown_reasons
+
+
+def test_honeypot_sequence_classifies_sell_blocked():
+    fork = FakeFork()
+    sequence = HoneypotSequence(
+        "hp-1",
+        buy=SimulationScenario("buy", "0xtrader", "0xrouter", "0xbuy"),
+        approve=SimulationScenario("approve", "0xtrader", "0xtoken", "0xapprove"),
+        sell=SimulationScenario("sell", "0xtrader", "0xrouter", "0xsell"),
+        token_address="0xtoken",
+    )
+    result = StateForkEngine(rpc=FakeRpc(), fork=fork).analyze_honeypot(
+        sequence, run_id="honeypot-test", block_tag="safe"
+    )
+    hp = result.honeypot_results[0]
+    assert result.status == "complete"
+    assert hp.classification == "sell_blocked"
+    assert [step.scenario_id for step in hp.steps] == ["buy", "approve", "sell"]
+
+
+def test_failed_buy_is_not_called_honeypot():
+    assert StateForkEngine._classify_honeypot_steps(
+        [SimulationResult("buy", "reverted", ANCHOR)],
+        HoneypotSequence("hp", SimulationScenario("buy", "0x1", "0x2"), SimulationScenario("sell", "0x1", "0x2")),
+    ) == "buy_failed"

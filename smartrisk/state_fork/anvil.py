@@ -4,11 +4,10 @@ import json
 import shutil
 import subprocess
 import time
-from pathlib import Path
 from typing import Any
 
 from .alchemy_rpc import AlchemyRpcError
-from .models import BlockAnchor, SimulationScenario, SimulationResult
+from .models import BlockAnchor, HoneypotSequence, SimulationScenario, SimulationResult
 
 
 class AnvilUnavailable(RuntimeError):
@@ -89,35 +88,58 @@ class AnvilFork:
     def run_scenario(self, scenario: SimulationScenario, anchor: BlockAnchor) -> SimulationResult:
         snapshot = self.snapshot()
         try:
-            try:
-                # The sender is impersonated only inside the local fork. No
-                # private key is created or transmitted to Alchemy.
-                self.rpc_request("anvil_impersonateAccount", [scenario.from_address])
-                self.rpc_request("anvil_setBalance", [scenario.from_address, hex(10**21)])
-                tx_hash = self.rpc_request("eth_sendTransaction", [scenario.rpc_transaction()])
-            except Exception as exc:
-                return SimulationResult(scenario.scenario_id, "reverted", anchor, error=str(exc), assumptions=["transaction was not broadcast to the real network"])
-            receipt = self._wait_receipt(tx_hash)
-            if not receipt:
-                return SimulationResult(scenario.scenario_id, "unknown", anchor, tx_hash=tx_hash, error="receipt timeout")
-            succeeded = receipt.get("status") == "0x1"
-            trace = None
-            try:
-                trace = self.rpc_request("debug_traceTransaction", [tx_hash, {"tracer": "callTracer"}])
-            except Exception as exc:
-                trace = {"unavailable": str(exc)}
-            return SimulationResult(
-                scenario.scenario_id,
-                "success" if succeeded else "reverted",
-                anchor,
-                tx_hash=tx_hash,
-                receipt=receipt,
-                trace=trace,
-                logs=receipt.get("logs", []),
-                assumptions=["execution occurred only on a local Anvil fork"],
-            )
+            return self._execute_scenario(scenario, anchor)
         finally:
             self.revert(snapshot)
+
+    def run_sequence(self, sequence: HoneypotSequence, anchor: BlockAnchor) -> list[SimulationResult]:
+        """Execute buy -> optional approve -> sell in one state, then revert it."""
+        snapshot = self.snapshot()
+        results: list[SimulationResult] = []
+        try:
+            for scenario in sequence.steps():
+                result = self._execute_scenario(scenario, anchor)
+                results.append(result)
+                if result.status != "success":
+                    break
+            return results
+        finally:
+            self.revert(snapshot)
+
+    def _execute_scenario(self, scenario: SimulationScenario, anchor: BlockAnchor) -> SimulationResult:
+        try:
+            # The sender is impersonated only inside the local fork. No
+            # private key is created or transmitted to Alchemy.
+            self.rpc_request("anvil_impersonateAccount", [scenario.from_address])
+            self.rpc_request("anvil_setBalance", [scenario.from_address, hex(10**21)])
+            tx_hash = self.rpc_request("eth_sendTransaction", [scenario.rpc_transaction()])
+        except Exception as exc:
+            return SimulationResult(
+                scenario.scenario_id,
+                "reverted",
+                anchor,
+                error=str(exc),
+                assumptions=["transaction was not broadcast to the real network"],
+            )
+        receipt = self._wait_receipt(tx_hash)
+        if not receipt:
+            return SimulationResult(scenario.scenario_id, "unknown", anchor, tx_hash=tx_hash, error="receipt timeout")
+        succeeded = receipt.get("status") == "0x1"
+        trace = None
+        try:
+            trace = self.rpc_request("debug_traceTransaction", [tx_hash, {"tracer": "callTracer"}])
+        except Exception as exc:
+            trace = {"unavailable": str(exc)}
+        return SimulationResult(
+            scenario.scenario_id,
+            "success" if succeeded else "reverted",
+            anchor,
+            tx_hash=tx_hash,
+            receipt=receipt,
+            trace=trace,
+            logs=receipt.get("logs", []),
+            assumptions=["execution occurred only on a local Anvil fork"],
+        )
 
     def _wait_receipt(self, tx_hash: str, timeout: float = 15.0) -> dict[str, Any] | None:
         deadline = time.monotonic() + timeout

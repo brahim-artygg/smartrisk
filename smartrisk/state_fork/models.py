@@ -39,6 +39,23 @@ class SimulationScenario:
         return tx
 
 
+@dataclass(frozen=True)
+class HoneypotSequence:
+    sequence_id: str
+    buy: SimulationScenario
+    sell: SimulationScenario
+    approve: SimulationScenario | None = None
+    token_address: str | None = None
+    description: str = ""
+
+    def steps(self) -> list[SimulationScenario]:
+        values = [self.buy]
+        if self.approve:
+            values.append(self.approve)
+        values.append(self.sell)
+        return values
+
+
 @dataclass
 class SimulationResult:
     scenario_id: str
@@ -59,11 +76,25 @@ class SimulationResult:
 
 
 @dataclass
+class HoneypotResult:
+    sequence_id: str
+    classification: Literal["sell_succeeded", "sell_blocked", "buy_failed", "unknown"]
+    steps: list[SimulationResult]
+    anchor: BlockAnchor | None
+    evidence: list[str] = field(default_factory=list)
+    assumptions: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class ForkRun:
     run_id: str
     status: Literal["complete", "partial", "unknown", "failed"]
     anchor: BlockAnchor | None
     results: list[SimulationResult] = field(default_factory=list)
+    honeypot_results: list[HoneypotResult] = field(default_factory=list)
     capability: dict[str, Any] = field(default_factory=dict)
     unknown_reasons: list[str] = field(default_factory=list)
     diagnostics: list[str] = field(default_factory=list)

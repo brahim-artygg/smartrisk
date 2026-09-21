@@ -1,0 +1,29 @@
+{
+  "sequence_id": "token-buy-approve-sell",
+  "token_address": "0x0000000000000000000000000000000000000003",
+  "description": "Buy, approve router, then sell on the same local fork state",
+  "buy": {
+    "scenario_id": "buy",
+    "from": "0x0000000000000000000000000000000000000001",
+    "to": "0x0000000000000000000000000000000000000002",
+    "data": "0x",
+    "value_wei": 0,
+    "gas_limit": 500000
+  },
+  "approve": {
+    "scenario_id": "approve",
+    "from": "0x0000000000000000000000000000000000000001",
+    "to": "0x0000000000000000000000000000000000000003",
+    "data": "0x",
+    "value_wei": 0,
+    "gas_limit": 150000
+  },
+  "sell": {
+    "scenario_id": "sell",
+    "from": "0x0000000000000000000000000000000000000001",
+    "to": "0x0000000000000000000000000000000000000002",
+    "data": "0x",
+    "value_wei": 0,
+    "gas_limit": 500000
+  }
+}
