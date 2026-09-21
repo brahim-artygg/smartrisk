@@ -1,0 +1,8 @@
+{
+  "scenario_id": "read-or-write-call",
+  "from": "0x0000000000000000000000000000000000000001",
+  "to": "0x0000000000000000000000000000000000000002",
+  "data": "0x",
+  "value_wei": 0,
+  "description": "Example scenario; replace to/data with a real contract call"
+}

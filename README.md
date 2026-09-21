@@ -105,3 +105,105 @@ pytest -q
 - اختيار compiler يرفض الإصدارات غير المثبتة ولا يقوم بتحميلها تلقائياً.
 - تحليل المشروع يحتاج source/compilation artifacts؛ bytecode وحده لا ينتج AST/IR موثوقاً.
 - ترخيص Slither AGPL-3.0 وترخيص compiler/أدواته يجب مراجعتهما قبل دمجهما في توزيع تجاري مغلق المصدر.
+
+
+# المحرك الثاني: State-Fork Simulation v0.1
+
+تمت إضافة محرك محاكاة معاملات على حالة مفروكة محلياً باستخدام Alchemy كمصدر RPC وAnvil كمحرك fork.
+
+## مكونات المحرك
+
+```text
+AlchemyRpcClient
+   ├── capability_probe
+   ├── chainId / safe / finalized / latest
+   ├── block anchor + block hash
+   └── receipts / code / balance
+          ↓
+AnvilFork
+   ├── fork-block-number
+   ├── local impersonation فقط
+   ├── snapshot / revert لكل scenario
+   ├── receipt + logs
+   └── debug_traceTransaction عند توفره
+          ↓
+SimulationResult / ForkRun
+```
+
+الطبقة لا تحتوي على private keys ولا ترسل المعاملة إلى الشبكة الحقيقية. `anvil_impersonateAccount` و`anvil_setBalance` يعملان داخل fork محلي فقط.
+
+## التشغيل
+
+المتطلبات:
+
+- binary `anvil` متاح في `PATH`.
+- `ALCHEMY_API_KEY` أو `ALCHEMY_RPC_URL`.
+- بلوك `safe` أو `finalized` متاح على الشبكة.
+
+مثال:
+
+```bash
+export ALCHEMY_API_KEY="..."
+smartrisk-fork tests/fixtures/fork-scenario.json \
+  --block-tag safe \
+  --run-id fork-smoke \
+  --output artifacts/fork.json
+```
+
+أو:
+
+```bash
+python -m smartrisk.state_fork tests/fixtures/fork-scenario.json \
+  --block-number 21000000 \
+  --output artifacts/fork.json
+```
+
+ملف السيناريو:
+
+```json
+{
+  "scenario_id": "transfer",
+  "from": "0x...",
+  "to": "0x...",
+  "data": "0xa9059cbb...",
+  "value_wei": 0,
+  "gas_limit": 250000,
+  "description": "local fork transaction"
+}
+```
+
+يمكن أن يحتوي الملف على object واحد أو array من السيناريوهات.
+
+## ضمانات v0.1
+
+- يثبت المحرك `chainId` وblock number وblock hash قبل التشغيل.
+- يفضل `safe` ثم `finalized`، ولا يستخدم `latest` إلا عند طلبه صراحة.
+- يقارن block hash داخل Anvil مع block hash الذي أعاده Alchemy ويرفض mismatch.
+- ينشئ snapshot قبل كل scenario ويعمل revert بعده لمنع تسرب state بين السيناريوهات.
+- يصنف التنفيذ إلى `success` أو `reverted` أو `unknown` أو `failed`.
+- يحفظ receipt وlogs وtrace عند توفر `debug_traceTransaction`.
+- عدم وجود Alchemy أو Anvil ينتج `unknown` وليس نجاحاً أو فشلاً أمنياً.
+- لا تُرسل أي معاملة إلى Alchemy؛ Alchemy يستخدم upstream state فقط، والتنفيذ محلي.
+
+## الاختبارات الحالية
+
+```text
+11 passed
+```
+
+وتغطي:
+
+- ترميز calldata/value/gas إلى transaction RPC.
+- تثبيت anchor وتشغيل السيناريوهات.
+- التحقق من block hash.
+- حالة غياب Alchemy.
+- serialization للنتائج.
+- smoke test CLI في بيئة بلا credentials ينتج `unknown` بأمان.
+
+## حدود النسخة الأولى
+
+- لا يوجد state diff كامل بعد؛ النسخة تحفظ receipt/logs/trace وتضع state diff كحقل قابل للتوسعة.
+- لا يوجد scenario generator من ABI بعد؛ السيناريوهات تدخل حالياً كـJSON صريح.
+- `debug_traceTransaction` اختياري لأن توفره يختلف حسب شبكة وخطة Alchemy.
+- استخدام `eth_sendTransaction` يتطلب حساباً impersonated داخل Anvil؛ لا توجد مفاتيح خاصة في المحرك.
+- لا ينبغي اعتبار نجاح scenario واحد دليلاً على قابلية البيع العامة؛ يجب بناء سيناريوهات buy/sell صحيحة وربطها لاحقاً بمحرك البيانات السوقية.

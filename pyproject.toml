@@ -4,12 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "smartrisk"
-version = "0.1.0"
+version = "0.2.0"
 description = "EVM risk scanning platform"
 requires-python = ">=3.11"
 
 [project.scripts]
 smartrisk-static = "smartrisk.static_engine.cli:main"
+smartrisk-fork = "smartrisk.state_fork.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["smartrisk*"]
