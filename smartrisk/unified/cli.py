@@ -26,6 +26,9 @@ def build_parser() -> argparse.ArgumentParser:
     scan.add_argument("--block-number", type=int)
     scan.add_argument("--compiler-version")
     scan.add_argument("--window-blocks", type=int, default=10_000)
+    serve = subparsers.add_parser("serve", help="run local scan API")
+    serve.add_argument("--host", default="127.0.0.1")
+    serve.add_argument("--port", type=int, default=8787)
     return parser
 
 
@@ -55,8 +58,10 @@ def _request(args: argparse.Namespace) -> UnifiedRequest:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    if args.command != "scan":
-        return 2
+    if args.command == "serve":
+        from ..service.http import serve
+        serve(args.host, args.port).serve_forever()
+        return 0
     result = UnifiedRiskEngine().analyze(_request(args), run_id=args.run_id)
     payload = result.to_json()
     if args.output:
