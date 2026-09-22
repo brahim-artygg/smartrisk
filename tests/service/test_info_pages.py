@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 
@@ -32,3 +33,45 @@ def test_full_site_page_set_exists_and_is_linked():
         assert f'href="{href}"' in landing
     assert "Risk signals are stronger when the evidence agrees." in (root / "methodology.html").read_text()
     assert "No. The scanner is intentionally open." in (root / "faq.html").read_text()
+
+
+def test_public_pages_are_english_and_search_ready():
+    root = Path(__file__).resolve().parents[2] / "smartrisk" / "web"
+    public = ["index.html", "about.html", "how-it-works.html", "methodology.html", "faq.html", "risk-library.html", "security.html", "supported-networks.html", "contact.html", "privacy.html", "terms.html", "disclaimer.html"]
+    arabic = re.compile(r"[\u0600-\u06ff]")
+    for page in public:
+        html = (root / page).read_text()
+        assert '<html lang="en">' in html
+        assert 'name="robots" content="index, follow' in html
+        assert 'rel="canonical"' in html
+        assert 'property="og:title"' in html
+        assert 'name="twitter:card" content="summary_large_image"' in html
+        assert 'type="application/ld+json"' in html
+        assert not arabic.search(html)
+
+
+def test_private_pages_are_noindex():
+    root = Path(__file__).resolve().parents[2] / "smartrisk" / "web"
+    for page in ["auth.html", "developer.html", "admin.html", "results.html", "embed.html"]:
+        html = (root / page).read_text()
+        assert 'name="robots" content="noindex, nofollow' in html
+        assert not re.search(r"[\u0600-\u06ff]", html)
+
+
+def test_crawl_and_brand_assets_exist():
+    root = Path(__file__).resolve().parents[2] / "smartrisk" / "web"
+    assert (root / "robots.txt").is_file()
+    assert (root / "sitemap.xml").is_file()
+    assert (root / "favicon.ico").is_file()
+    assert (root / "favicon-96x96.png").is_file()
+    assert (root / "apple-touch-icon.png").is_file()
+    assert (root / "site.webmanifest").is_file()
+    assert (root / "og-image.png").is_file()
+    robots = (root / "robots.txt").read_text()
+    assert "Sitemap: https://smartrisk.io/sitemap.xml" in robots
+    assert "Disallow: /v1/" in robots
+    sitemap = (root / "sitemap.xml").read_text()
+    assert "https://smartrisk.io/" in sitemap
+    assert "https://smartrisk.io/about" in sitemap
+    assert "https://smartrisk.io/faq" in sitemap
+    assert "https://smartrisk.io/sitemap.xml" not in sitemap

@@ -2,13 +2,25 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<!-- SmartRisk SEO START -->
+  <meta name="robots" content="noindex, nofollow, noarchive, nosnippet">
+  <meta name="googlebot" content="noindex, nofollow, noarchive, nosnippet">
+  <meta name="bingbot" content="noindex, nofollow, noarchive, nosnippet">
+
+  <link rel="icon" href="/favicon.ico" sizes="any">
+  <link rel="icon" type="image/png" sizes="96x96" href="/favicon-96x96.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/site.webmanifest">
+  <meta name="theme-color" content="#062f28">
+<!-- SmartRisk SEO END -->
+
 <title>SmartRisk Admin</title>
 <link rel="stylesheet" href="/assets/admin.css">
 </head>
 <body>
 <div class="admin-app">
   <aside class="sidebar">
-    <div class="brand"><span class="brand-mark">S</span><div><strong>SmartRisk</strong><small>Admin Console</small></div></div>
+    <div class="brand"><img class="brand-logo" src="/assets/logo.png" alt="" aria-hidden="true"><div><strong>SmartRisk</strong><small>Admin Console</small></div></div>
     <nav id="side-nav">
       <button data-section="overview" class="active"><span>⌂</span>Overview</button>
       <button data-section="users"><span>◉</span>Users</button>
@@ -63,8 +75,13 @@
     </section>
 
     <section id="section-payments" class="section">
-      <div class="section-toolbar"><div><h2>Payments</h2><p>USDT payment records, blockchain verification, and settlement status. Crypto checkout is connected to the configured Ethereum receiving address.</p></div><button id="new-payment" class="small-btn">Record payment</button></div>
-      <div class="panel table-panel"><table><thead><tr><th>User</th><th>Amount</th><th>Network / Tx</th><th>Status</th><th>Invoice</th><th>Date</th><th></th></tr></thead><tbody id="payments-table"></tbody></table></div>
+      <div class="section-toolbar"><div><h2>Crypto Billing</h2><p>Live USDT invoices, Ethereum payment events, settlement state, and reconciliation. The receiving address is fixed by server configuration.</p></div><div class="toolbar-actions"><button id="billing-reconcile" class="small-btn">Run reconciliation</button><button id="billing-refresh" class="small-btn">Refresh</button></div></div>
+      <div id="billing-health" class="billing-health panel"></div>
+      <div id="billing-stats" class="stats-grid billing-stats"></div>
+      <div class="panel billing-filter-panel"><div class="toolbar-actions"><input id="billing-search" placeholder="Search invoice, email, tx hash or plan"><select id="billing-status"><option value="">All invoice statuses</option><option>awaiting_payment</option><option>payment_detected</option><option>confirming</option><option>paid</option><option>expired</option><option>underpaid</option><option>overpaid</option><option>rejected</option><option>canceled</option></select><button id="billing-search-btn" class="small-btn">Search</button></div></div>
+      <div class="panel table-panel"><div class="panel-head table-panel-head"><div><h3>Invoices</h3><p>Authoritative billing records linked to the blockchain settlement pipeline.</p></div><span id="billing-invoice-count" class="muted"></span></div><table><thead><tr><th>Customer</th><th>Plan / Amount</th><th>State</th><th>Payment event</th><th>Expiry / Paid</th><th></th></tr></thead><tbody id="billing-invoices-table"></tbody></table></div>
+      <div class="panel table-panel billing-events-panel"><div class="panel-head table-panel-head"><div><h3>Unmatched blockchain events</h3><p>Incoming USDT transfers that are not attached to an invoice. These never activate access automatically.</p></div><span id="billing-unmatched-count" class="muted"></span></div><table><thead><tr><th>Detected</th><th>Amount</th><th>Sender</th><th>Transaction</th><th>Block</th><th>Status</th></tr></thead><tbody id="billing-unmatched-table"></tbody></table></div>
+      <div class="panel legacy-payment-panel"><div class="panel-head"><div><h3>Legacy payment ledger</h3><p>Compatibility records only. Blockchain settlement is the source of truth for new crypto billing.</p></div><button id="load-legacy-payments" class="small-btn">Load legacy records</button></div><div class="table-panel"><table><thead><tr><th>User</th><th>Amount</th><th>Network / Tx</th><th>Status</th><th>Invoice</th><th>Date</th></tr></thead><tbody id="payments-table"><tr><td colspan="6" class="muted">Not loaded.</td></tr></tbody></table></div></div>
     </section>
 
     <section id="section-coupons" class="section">

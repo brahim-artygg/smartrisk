@@ -5,6 +5,7 @@ import json
 import threading
 
 from smartrisk.service.admin import AdminService
+from smartrisk.service.billing import BillingStore, USDT_ETHEREUM_CONTRACT
 from smartrisk.service.auth import AuthService, AuthStore
 from smartrisk.service.developer_api import DeveloperStore
 from smartrisk.service.http import serve
@@ -113,3 +114,49 @@ def test_admin_can_disable_and_reenable_key_and_audit(tmp_path):
     ids={x['target_type'] for x in audit}
     assert {'plan','coupon','grant','ad','payment','api_key'}<=ids
     assert coupon['code']=='SAVE20' and grant['status']=='active' and ad['active'] is True and pay['status']=='pending'
+
+
+def test_admin_crypto_billing_views_are_authoritative(tmp_path, monkeypatch):
+    path=tmp_path/'db.sqlite3'
+    monkeypatch.setenv('SMARTRISK_BILLING_ENABLED','true')
+    monkeypatch.setenv('SMARTRISK_PAYMENT_RECEIVER','0x5a9fe13fbcc6055144e594391adf30ecb287e5cf')
+    monkeypatch.setenv('SMARTRISK_PAYMENT_RPC_URL','https://example.invalid')
+    DeveloperStore(path)
+    admin=AdminService(path)
+    billing=BillingStore(path)
+    user=admin.store.auth.create_user('billing@example.com','hash')
+    plan=admin.store.plans()[0]
+    invoice=billing.create_invoice(user.id,plan,'0x5a9fe13fbcc6055144e594391adf30ecb287e5cf','0x1111111111111111111111111111111111111111',30,lambda:1234)
+    event=billing.insert_payment_event({'invoice_id':invoice['id'],'chain_id':'1','tx_hash':'0x'+'a'*64,'log_index':0,'block_number':123,'block_hash':'0x'+'b'*64,'token_contract':USDT_ETHEREUM_CONTRACT,'from_address':'0x1111111111111111111111111111111111111111','to_address':'0x5a9fe13fbcc6055144e594391adf30ecb287e5cf','amount_units':invoice['payment_amount_units'],'status':'confirming','confirmations':2})
+    listing=admin.store.list_billing_invoices()
+    assert listing['pagination']['total']==1
+    row=listing['data'][0]
+    assert row['id']==invoice['id'] and row['payment_amount_usdt'].endswith('1234') and row['payment_event']['tx_hash'].startswith('0xaaaa')
+    detail=admin.store.billing_invoice_detail(invoice['id'])
+    assert detail['invoice']['email']=='billing@example.com' and detail['events'][0]['id']==event['id']
+    unmatched=admin.store.list_billing_events(unmatched_only=True)
+    assert unmatched['pagination']['total']==0
+    overview=admin.store.billing_overview()
+    assert overview['invoices_total']==1 and overview['awaiting_payment']==1 and overview['confirming']==0
+
+
+def test_admin_crypto_billing_endpoint_and_reconcile(tmp_path, monkeypatch):
+    path=tmp_path/'db.sqlite3'
+    monkeypatch.setenv('SMARTRISK_BILLING_ENABLED','true')
+    monkeypatch.setenv('SMARTRISK_PAYMENT_RECEIVER','0x5a9fe13fbcc6055144e594391adf30ecb287e5cf')
+    monkeypatch.setenv('SMARTRISK_PAYMENT_RPC_URL','https://example.invalid')
+    scan=ScanService(JobStore(path),FakeEngine(),max_workers=1)
+    auth=AuthService(AuthStore(path),FakeMailer())
+    server=serve('127.0.0.1',0,service=scan,auth_service=auth)
+    t=threading.Thread(target=server.serve_forever,daemon=True); t.start()
+    try:
+        cookie=login_admin(server,auth)
+        csrf=(request(server,'GET','/v1/admin/csrf',headers={'Cookie':cookie})[1])['csrf_token']
+        resp,data=request(server,'GET','/v1/admin/billing/overview',headers={'Cookie':cookie})
+        assert resp.status==200 and data['network']=='Ethereum Mainnet' and data['receiver_address']=='0x5a9fe13fbcc6055144e594391adf30ecb287e5cf'
+        resp,data=request(server,'GET','/v1/admin/billing/invoices',headers={'Cookie':cookie})
+        assert resp.status==200 and 'data' in data
+        resp,data=request(server,'POST','/v1/admin/billing/reconcile',{},headers={'Cookie':cookie,'X-CSRF-Token':csrf})
+        assert resp.status==200 and 'billing' in data
+    finally:
+        server.shutdown();server.server_close();server.smartrisk_developer_api.shutdown();scan.executor.shutdown(wait=True)

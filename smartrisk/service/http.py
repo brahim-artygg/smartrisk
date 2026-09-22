@@ -127,6 +127,14 @@ class ScanHandler(BaseHTTPRequestHandler):
             "admin.html": ("text/html; charset=utf-8", "admin.html"),
             "assets/admin.css": ("text/css; charset=utf-8", "admin.css"),
             "assets/admin.js": ("application/javascript; charset=utf-8", "admin.js"),
+            "assets/logo.png": ("image/png", "logo.png"),
+            "favicon.ico": ("image/x-icon", "favicon.ico"),
+            "favicon-96x96.png": ("image/png", "favicon-96x96.png"),
+            "apple-touch-icon.png": ("image/png", "apple-touch-icon.png"),
+            "site.webmanifest": ("application/manifest+json; charset=utf-8", "site.webmanifest"),
+            "robots.txt": ("text/plain; charset=utf-8", "robots.txt"),
+            "sitemap.xml": ("application/xml; charset=utf-8", "sitemap.xml"),
+            "assets/og-image.png": ("image/png", "og-image.png"),
         }
         item = allowed.get(relative)
         if item is None:
@@ -318,6 +326,17 @@ class ScanHandler(BaseHTTPRequestHandler):
                     self._json(201,{"grant":self.admin_service.store.create_grant(payload,admin.id,ip)}); return
                 if self.path.startswith("/v1/admin/grants/"):
                     gid=self.path.split("/")[4]; self.admin_service.store.revoke_grant(gid,admin.id,ip); self._json(200,{"ok":True}); return
+                if self.path == "/v1/admin/billing/reconcile":
+                    result = self.admin_service.store.billing.mark_expired()
+                    if self.billing._monitor is not None and self.billing.configured:
+                        try:
+                            self.billing._monitor.reconcile_confirming()
+                        except Exception:
+                            pass
+                    data = self.admin_service.store.billing_overview()
+                    data["expired_invoices"] = int(result)
+                    self.admin_service.store.audit(admin.id,"billing.reconciled","billing",None,{"expired_invoices":int(result),"confirming":data["confirming"],"unmatched_events":data["unmatched_events"]},ip)
+                    self._json(200,{"billing":data}); return
                 if self.path == "/v1/admin/payments":
                     self._json(201,{"payment":self.admin_service.store.create_payment(payload,admin.id,ip)}); return
                 if self.path.startswith("/v1/admin/payments/"):
@@ -595,11 +614,32 @@ class ScanHandler(BaseHTTPRequestHandler):
         if path == "/":
             self._asset("index.html")
             return
+        if path == "/favicon.ico":
+            self._asset("favicon.ico", {"Cache-Control": "public, max-age=604800"})
+            return
+        if path == "/favicon-96x96.png":
+            self._asset("favicon-96x96.png", {"Cache-Control": "public, max-age=604800"})
+            return
+        if path == "/apple-touch-icon.png":
+            self._asset("apple-touch-icon.png", {"Cache-Control": "public, max-age=604800"})
+            return
+        if path == "/site.webmanifest":
+            self._asset("site.webmanifest", {"Cache-Control": "public, max-age=604800"})
+            return
+        if path == "/robots.txt":
+            self._asset("robots.txt", {"Cache-Control": "public, max-age=3600"})
+            return
+        if path == "/sitemap.xml":
+            self._asset("sitemap.xml", {"Cache-Control": "public, max-age=3600"})
+            return
+        if path == "/assets/og-image.png":
+            self._asset("assets/og-image.png", {"Cache-Control": "public, max-age=604800"})
+            return
         if path == "/auth":
-            self._asset("auth.html")
+            self._asset("auth.html", {"X-Robots-Tag": "noindex, nofollow, noarchive, nosnippet"})
             return
         if path == "/developer":
-            self._asset("developer.html")
+            self._asset("developer.html", {"X-Robots-Tag": "noindex, nofollow, noarchive, nosnippet"})
             return
         if path == "/embed/scanner":
             self._render_embed_frame(query)
@@ -607,7 +647,7 @@ class ScanHandler(BaseHTTPRequestHandler):
         if path == "/admin":
             try:
                 self._admin_required()
-                self._asset("admin.html")
+                self._asset("admin.html", {"X-Robots-Tag": "noindex, nofollow, noarchive, nosnippet"})
             except AuthError as exc:
                 if exc.code == "AUTH_REQUIRED": self._auth_page("login")
                 else: self._json(exc.status,{"error":str(exc),"code":exc.code})
@@ -632,6 +672,9 @@ class ScanHandler(BaseHTTPRequestHandler):
             return
         if path == "/assets/admin.js":
             self._asset("assets/admin.js")
+            return
+        if path == "/assets/logo.png":
+            self._asset("assets/logo.png", {"Cache-Control": "public, max-age=86400"})
             return
         if path == "/developer-api.yaml":
             self._asset("developer-api.yaml")
@@ -676,7 +719,7 @@ class ScanHandler(BaseHTTPRequestHandler):
             self._asset("assets/app.js")
             return
         if path.startswith("/scan/") and len(path) > len("/scan/"):
-            self._asset("results.html")
+            self._asset("results.html", {"X-Robots-Tag": "noindex, nofollow, noarchive, nosnippet"})
             return
         if path == "/assets/results.css":
             self._asset("assets/results.css")
@@ -814,6 +857,34 @@ class ScanHandler(BaseHTTPRequestHandler):
         if path == "/v1/admin/grants":
             try: self._admin_required(); self._json(200,{"grants":self.admin_service.store.list_grants()})
             except AuthError as exc: self._json(exc.status,{"error":str(exc),"code":exc.code})
+            return
+        if path == "/v1/admin/billing/overview":
+            try:
+                self._admin_required()
+                data = self.admin_service.store.billing_overview()
+                data["runtime"] = {"configured": bool(self.billing.configured), "monitor_running": bool(self.billing._monitor and self.billing._monitor._thread and self.billing._monitor._thread.is_alive())}
+                self._json(200, data)
+            except (AuthError,ValueError) as exc: self._admin_json_error(exc)
+            return
+        if path == "/v1/admin/billing/invoices":
+            try:
+                self._admin_required(); self._json(200,self.admin_service.store.list_billing_invoices(query.get("status",[None])[0],query.get("search",[""])[0],int(query.get("limit",[100])[0]),int(query.get("offset",[0])[0])))
+            except (AuthError,ValueError) as exc: self._admin_json_error(exc)
+            return
+        if path.startswith("/v1/admin/billing/invoices/"):
+            invoice_id=path[len("/v1/admin/billing/invoices/"):].strip("/")
+            try: self._admin_required(); self._json(200,self.admin_service.store.billing_invoice_detail(invoice_id))
+            except (AuthError,ValueError) as exc: self._admin_json_error(exc)
+            return
+        if path == "/v1/admin/billing/events":
+            try:
+                self._admin_required(); self._json(200,self.admin_service.store.list_billing_events(query.get("status",[None])[0],query.get("search",[""])[0],int(query.get("limit",[100])[0]),int(query.get("offset",[0])[0]),False))
+            except (AuthError,ValueError) as exc: self._admin_json_error(exc)
+            return
+        if path == "/v1/admin/billing/unmatched":
+            try:
+                self._admin_required(); self._json(200,self.admin_service.store.list_billing_events(query.get("status",[None])[0],query.get("search",[""])[0],int(query.get("limit",[100])[0]),int(query.get("offset",[0])[0]),True))
+            except (AuthError,ValueError) as exc: self._admin_json_error(exc)
             return
         if path == "/v1/admin/payments":
             try: self._admin_required(); self._json(200,self.admin_service.store.list_payments(query.get("status",[None])[0],int(query.get("limit",[100])[0]),int(query.get("offset",[0])[0])))

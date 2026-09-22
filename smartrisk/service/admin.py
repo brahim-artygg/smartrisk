@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import threading
 import uuid
@@ -11,6 +12,7 @@ from typing import Any
 from .embed_partner import validate_origins
 
 from .auth import AuthError, AuthStore, User
+from .billing import ADDRESS_RE, BillingStore, ETHEREUM_CHAIN_ID, USDT_ETHEREUM_CONTRACT, USDT_DECIMALS
 
 
 def _now() -> str:
@@ -29,6 +31,7 @@ class AdminStore:
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self.auth = AuthStore(self.path)
+        self.billing = BillingStore(self.path)
         with self._connect() as db:
             db.executescript(
                 """
@@ -213,6 +216,7 @@ class AdminStore:
             "confirmed_revenue_usdt": float(confirmed_revenue or 0), "active_batches": int(active_batches),
             "api_scans_reserved_this_month": int(scans_month or 0), "failed_jobs": int(failed_jobs or 0),
             "settings": self.settings(),
+            "billing": self.billing_overview(),
         }
 
     # ---------- users ----------
@@ -418,6 +422,125 @@ class AdminStore:
             else:
                 db.execute("DELETE FROM subscriptions WHERE user_id=?",(row[0],))
         self.audit(admin_id,"grant.revoked","grant",grant_id,{},ip)
+
+    # ---------- crypto billing administration ----------
+    @staticmethod
+    def _billing_amount(units: int) -> str:
+        scale = 10 ** USDT_DECIMALS
+        return f"{int(units) / scale:.{USDT_DECIMALS}f}"
+
+    def _billing_env(self) -> dict[str, Any]:
+        enabled = os.getenv("SMARTRISK_BILLING_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
+        receiver = (os.getenv("SMARTRISK_PAYMENT_RECEIVER") or "").strip().lower()
+        token = (os.getenv("SMARTRISK_PAYMENT_USDT_CONTRACT") or USDT_ETHEREUM_CONTRACT).strip().lower()
+        rpc_names = (
+            "SMARTRISK_PAYMENT_RPC_URL", "ALCHEMY_API_KEY", "ALCHEMY_RPC_URL",
+            "SMARTRISK_ETHEREUM_RPC_URL", "QUICKNODE_RPC_URL", "CHAINSTACK_RPC_URL",
+            "SMARTRISK_ETHEREUM_QUICKNODE_RPC_URL", "SMARTRISK_ETHEREUM_CHAINSTACK_RPC_URL",
+        )
+        rpc_configured = any(os.getenv(name) for name in rpc_names)
+        address_valid = bool(ADDRESS_RE.fullmatch(receiver))
+        configured = enabled and address_valid and token == USDT_ETHEREUM_CONTRACT and rpc_configured
+        return {
+            "enabled": enabled, "configured": configured, "rpc_configured": rpc_configured,
+            "chain_id": ETHEREUM_CHAIN_ID, "network": "Ethereum Mainnet", "token": "USDT",
+            "token_contract": token, "receiver_address": receiver, "receiver_valid": address_valid,
+            "invoice_ttl_minutes": int(os.getenv("SMARTRISK_PAYMENT_INVOICE_TTL_MINUTES", "30")),
+            "poll_seconds": int(os.getenv("SMARTRISK_PAYMENT_POLL_SECONDS", "15")),
+            "scan_lookback_blocks": int(os.getenv("SMARTRISK_PAYMENT_SCAN_LOOKBACK_BLOCKS", "50")),
+        }
+
+    def billing_overview(self) -> dict[str, Any]:
+        env = self._billing_env()
+        with self._connect() as db:
+            invoice_counts = {r[0]: int(r[1]) for r in db.execute("SELECT status,COUNT(*) FROM payment_invoices GROUP BY status").fetchall()}
+            event_counts = {r[0]: int(r[1]) for r in db.execute("SELECT status,COUNT(*) FROM payment_events GROUP BY status").fetchall()}
+            unmatched = int(db.execute("SELECT COUNT(*) FROM payment_events WHERE invoice_id IS NULL").fetchone()[0])
+            rejected = int(db.execute("SELECT COUNT(*) FROM payment_events WHERE status='rejected'").fetchone()[0])
+            settled_amount_units = int(db.execute("SELECT COALESCE(SUM(pe.amount_units),0) FROM payment_events pe JOIN payment_settlements ps ON ps.payment_event_id=pe.id").fetchone()[0] or 0)
+            invoices_total = int(db.execute("SELECT COUNT(*) FROM payment_invoices").fetchone()[0])
+            latest_invoice_at = db.execute("SELECT created_at FROM payment_invoices ORDER BY created_at DESC LIMIT 1").fetchone()
+            scanner = db.execute("SELECT next_block,updated_at FROM payment_scanner_state WHERE id='ethereum-usdt'").fetchone()
+        return {
+            **env, "invoice_counts": invoice_counts, "event_counts": event_counts,
+            "invoices_total": invoices_total, "awaiting_payment": invoice_counts.get("awaiting_payment", 0),
+            "payment_detected": invoice_counts.get("payment_detected", 0), "confirming": invoice_counts.get("confirming", 0),
+            "paid": invoice_counts.get("paid", 0), "expired": invoice_counts.get("expired", 0),
+            "unmatched_events": unmatched, "rejected_events": rejected,
+            "settled_revenue_usdt": self._billing_amount(settled_amount_units),
+            "scanner_next_block": int(scanner[0]) if scanner else None,
+            "scanner_updated_at": scanner[1] if scanner else None,
+            "latest_invoice_at": latest_invoice_at[0] if latest_invoice_at else None,
+        }
+
+    def list_billing_invoices(self, status: str | None = None, search: str = "", limit: int = 100, offset: int = 0) -> dict[str, Any]:
+        allowed = {"awaiting_payment","payment_detected","confirming","paid","expired","underpaid","overpaid","rejected","canceled"}
+        status = status if status in allowed else None
+        limit=max(1,min(int(limit),200)); offset=max(0,int(offset)); search=(search or "").strip().lower()
+        where=["1=1"]; params:list[Any]=[]
+        if status: where.append("i.status=?"); params.append(status)
+        if search:
+            where.append("(LOWER(i.id) LIKE ? OR LOWER(u.email) LIKE ? OR LOWER(i.receiver_address) LIKE ? OR LOWER(COALESCE(pe.tx_hash,'')) LIKE ? OR LOWER(i.plan_id) LIKE ?)")
+            like=f"%{search}%"; params += [like,like,like,like,like]
+        cond=" AND ".join(where)
+        with self._connect() as db:
+            total=db.execute(f"""SELECT COUNT(*) FROM payment_invoices i JOIN users u ON u.id=i.user_id
+                                     LEFT JOIN payment_events pe ON pe.id=(SELECT id FROM payment_events WHERE invoice_id=i.id ORDER BY created_at DESC LIMIT 1)
+                                     WHERE {cond}""",tuple(params)).fetchone()[0]
+            rows=db.execute(f"""SELECT i.id,i.user_id,u.email,i.plan_id,COALESCE(ap.name,i.plan_id),i.base_price_units,i.payment_amount_units,
+                                      i.currency,i.chain_id,i.token_contract,i.receiver_address,i.expected_payer_address,i.status,i.expires_at,i.paid_at,
+                                      i.settlement_id,i.created_at,i.updated_at,pe.id,pe.tx_hash,pe.block_number,pe.confirmations,pe.status,pe.from_address,
+                                      ps.subscription_id,ps.settled_at
+                               FROM payment_invoices i JOIN users u ON u.id=i.user_id LEFT JOIN api_plans ap ON ap.id=i.plan_id
+                               LEFT JOIN payment_events pe ON pe.id=(SELECT id FROM payment_events WHERE invoice_id=i.id ORDER BY created_at DESC LIMIT 1)
+                               LEFT JOIN payment_settlements ps ON ps.invoice_id=i.id WHERE {cond}
+                               ORDER BY i.created_at DESC LIMIT ? OFFSET ?""",tuple(params+[limit,offset])).fetchall()
+        data=[]
+        for r in rows:
+            data.append({"id":r[0],"user_id":r[1],"email":r[2],"plan_id":r[3],"plan_name":r[4],
+                         "base_price_usdt":self._billing_amount(r[5]),"payment_amount_usdt":self._billing_amount(r[6]),"currency":r[7],
+                         "chain_id":r[8],"token_contract":r[9],"receiver_address":r[10],"expected_payer_address":r[11],"status":r[12],
+                         "expires_at":r[13],"paid_at":r[14],"settlement_id":r[15],"created_at":r[16],"updated_at":r[17],
+                         "payment_event":({"id":r[18],"tx_hash":r[19],"block_number":r[20],"confirmations":r[21],"status":r[22],"from_address":r[23]} if r[18] else None),
+                         "subscription_id":r[24],"settled_at":r[25]})
+        return {"data":data,"pagination":{"total":int(total),"offset":offset,"limit":limit}}
+
+    def billing_invoice_detail(self, invoice_id: str) -> dict[str, Any]:
+        with self._connect() as db:
+            row=db.execute("""SELECT i.id,i.user_id,u.email,i.plan_id,COALESCE(ap.name,i.plan_id),i.base_price_units,i.payment_amount_units,
+                                      i.currency,i.chain_id,i.token_contract,i.receiver_address,i.expected_payer_address,i.status,i.expires_at,i.paid_at,i.settlement_id,i.created_at,i.updated_at
+                               FROM payment_invoices i JOIN users u ON u.id=i.user_id LEFT JOIN api_plans ap ON ap.id=i.plan_id WHERE i.id=?""",(invoice_id,)).fetchone()
+            if not row: raise AuthError("Payment invoice not found.","INVOICE_NOT_FOUND",404)
+            events=db.execute("""SELECT id,invoice_id,chain_id,tx_hash,log_index,block_number,block_hash,token_contract,from_address,to_address,amount_units,receipt_status,confirmations,status,rejection_code,first_seen_at,confirmed_at,reorged_at,created_at,updated_at
+                                FROM payment_events WHERE invoice_id=? ORDER BY created_at DESC""",(invoice_id,)).fetchall()
+            settlement=db.execute("""SELECT ps.id,ps.payment_event_id,ps.subscription_id,ps.settled_at,s.plan_id,s.status,s.ends_at
+                                    FROM payment_settlements ps LEFT JOIN subscriptions s ON s.id=ps.subscription_id WHERE ps.invoice_id=?""",(invoice_id,)).fetchone()
+        invoice={"id":row[0],"user_id":row[1],"email":row[2],"plan_id":row[3],"plan_name":row[4],"base_price_usdt":self._billing_amount(row[5]),"payment_amount_usdt":self._billing_amount(row[6]),
+                 "currency":row[7],"chain_id":row[8],"token_contract":row[9],"receiver_address":row[10],"expected_payer_address":row[11],"status":row[12],"expires_at":row[13],"paid_at":row[14],"settlement_id":row[15],"created_at":row[16],"updated_at":row[17]}
+        return {"invoice":invoice,"events":[{"id":e[0],"invoice_id":e[1],"chain_id":e[2],"tx_hash":e[3],"log_index":e[4],"block_number":e[5],"block_hash":e[6],"token_contract":e[7],"from_address":e[8],"to_address":e[9],"amount_usdt":self._billing_amount(e[10]),"receipt_status":e[11],"confirmations":e[12],"status":e[13],"rejection_code":e[14],"first_seen_at":e[15],"confirmed_at":e[16],"reorged_at":e[17],"created_at":e[18],"updated_at":e[19]} for e in events],"settlement":({"id":settlement[0],"payment_event_id":settlement[1],"subscription_id":settlement[2],"settled_at":settlement[3],"plan_id":settlement[4],"status":settlement[5],"ends_at":settlement[6]} if settlement else None)}
+
+    def list_billing_events(self, status: str | None = None, search: str = "", limit: int = 100, offset: int = 0, unmatched_only: bool = False) -> dict[str, Any]:
+        limit=max(1,min(int(limit),200)); offset=max(0,int(offset)); search=(search or "").strip().lower()
+        where=["1=1"]; params:list[Any]=[]
+        if status: where.append("pe.status=?"); params.append(status)
+        if unmatched_only: where.append("pe.invoice_id IS NULL")
+        if search:
+            where.append("(LOWER(pe.tx_hash) LIKE ? OR LOWER(pe.from_address) LIKE ? OR LOWER(pe.to_address) LIKE ? OR LOWER(COALESCE(pe.invoice_id,'')) LIKE ? OR LOWER(COALESCE(u.email,'')) LIKE ?)")
+            like=f"%{search}%"; params += [like,like,like,like,like]
+        cond=" AND ".join(where)
+        with self._connect() as db:
+            total=db.execute(f"SELECT COUNT(*) FROM payment_events pe LEFT JOIN payment_invoices i ON i.id=pe.invoice_id LEFT JOIN users u ON u.id=i.user_id WHERE {cond}",tuple(params)).fetchone()[0]
+            rows=db.execute(f"""SELECT pe.id,pe.invoice_id,u.email,pe.chain_id,pe.tx_hash,pe.log_index,pe.block_number,pe.block_hash,pe.token_contract,pe.from_address,pe.to_address,pe.amount_units,pe.receipt_status,pe.confirmations,pe.status,pe.rejection_code,pe.first_seen_at,pe.confirmed_at,pe.reorged_at,pe.created_at,pe.updated_at,i.plan_id
+                               FROM payment_events pe LEFT JOIN payment_invoices i ON i.id=pe.invoice_id LEFT JOIN users u ON u.id=i.user_id
+                               WHERE {cond} ORDER BY pe.created_at DESC LIMIT ? OFFSET ?""",tuple(params+[limit,offset])).fetchall()
+        return {"data":[{"id":r[0],"invoice_id":r[1],"email":r[2],"chain_id":r[3],"tx_hash":r[4],"log_index":r[5],"block_number":r[6],"block_hash":r[7],"token_contract":r[8],"from_address":r[9],"to_address":r[10],"amount_usdt":self._billing_amount(r[11]),"receipt_status":r[12],"confirmations":r[13],"status":r[14],"rejection_code":r[15],"first_seen_at":r[16],"confirmed_at":r[17],"reorged_at":r[18],"created_at":r[19],"updated_at":r[20],"plan_id":r[21]} for r in rows],"pagination":{"total":int(total),"offset":offset,"limit":limit}}
+
+    def reconcile_billing(self, admin_id: str, ip: str | None = None) -> dict[str, Any]:
+        expired=self.billing.mark_expired()
+        result=self.billing_overview()
+        self.audit(admin_id,"billing.reconciled","billing",None,{"expired_invoices":expired,"confirming":result["confirming"],"unmatched_events":result["unmatched_events"]},ip)
+        result["expired_invoices"]=expired
+        return result
 
     # ---------- payments / subscriptions ----------
     def list_payments(self,status:str|None=None,limit:int=100,offset:int=0)->dict[str,Any]:

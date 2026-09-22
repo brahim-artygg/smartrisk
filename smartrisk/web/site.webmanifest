@@ -1,0 +1,21 @@
+{
+  "name": "SmartRisk",
+  "short_name": "SmartRisk",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#061112",
+  "theme_color": "#062f28",
+  "description": "EVM token risk scanner and smart-contract analysis platform.",
+  "icons": [
+    {
+      "src": "/favicon-96x96.png",
+      "sizes": "96x96",
+      "type": "image/png"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ]
+}
