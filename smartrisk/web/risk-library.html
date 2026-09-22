@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SmartRisk — Risk Library</title>
+  <meta name="description" content="A plain-language guide to common contract risk signals.">
+  <link rel="stylesheet" href="/assets/info.css">
+</head>
+<body>
+  <main class="info-shell">
+    <nav class="info-nav" aria-label="Page navigation">
+      <a class="brand" href="/">SmartRisk</a>
+      <a class="back-link" href="/">Back to scanner</a>
+    </nav>
+    <article class="info-card">
+      <div class="eyebrow">Risk Library</div>
+      <h1>Know the signals before you read the score.</h1>
+      <p class="lead">These are the kinds of issues SmartRisk looks for. Seeing a signal does not automatically mean a project is malicious; the context matters.</p>
+      <div class="info-content">
+        
+<section><h2>Honeypot and sell restrictions</h2><p>A token may allow buys while making sells fail, revert, or behave very differently. SmartRisk checks trading paths where the available infrastructure allows it.</p></section>
+<section><h2>Owner permissions</h2><p>Some contracts leave powerful functions with the owner or another privileged role. Examples include pausing transfers, changing fees, blacklisting addresses, minting tokens, or replacing the implementation behind a proxy.</p></section>
+<section><h2>Liquidity</h2><p>Low or fragile liquidity can make a token difficult to exit even when transfers technically work. SmartRisk looks at available liquidity and related pool signals.</p></section>
+<section><h2>Holder concentration</h2><p>If a small number of wallets control a large share of supply, those wallets can have a large effect on price and market depth. Concentration is a market-structure signal, not proof of wrongdoing.</p></section>
+<section><h2>Taxes and transfer behavior</h2><p>Some tokens charge transfer or trading fees, and some contracts change those fees later. SmartRisk checks for unusually high, dynamic, or asymmetric behavior when it can observe it.</p></section>
+<section><h2>Proxy and upgradeability</h2><p>Upgradeable contracts can change logic after deployment. That is not automatically bad, but it is important to know who can upgrade the contract and what controls exist around that power.</p></section>
+
+      </div>
+    </article>
+    <footer class="site-footer" aria-label="SmartRisk footer">
+  <div class="footer-grid">
+    <div class="footer-group">
+      <h2>Product</h2>
+      <a href="/how-it-works">How it works</a>
+      <a href="/methodology">Methodology</a>
+      <a href="/supported-networks">Supported networks</a>
+    </div>
+    <div class="footer-group">
+      <h2>Learn</h2>
+      <a href="/risk-library">Risk library</a>
+      <a href="/faq">FAQ</a>
+      <a href="/disclaimer">Disclaimer</a>
+    </div>
+    <div class="footer-group">
+      <h2>Trust</h2>
+      <a href="/about">About SmartRisk</a>
+      <a href="/security">Security</a>
+      <a href="/privacy">Privacy policy</a>
+      <a href="/terms">Terms of service</a>
+      <a href="/contact">Contact us</a>
+    </div>
+  </div>
+</footer>
+  </main>
+</body>
+</html>

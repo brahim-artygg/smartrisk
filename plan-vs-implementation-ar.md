@@ -373,3 +373,92 @@ smartrisk scan ...
 > **SmartRisk حالياً Unified MVP تقني، وليس production-grade EVM risk platform.**
 
 أكبر قرار هندسي صحيح في النسخة الحالية هو الحفاظ على الفصل بين Alchemy كحقيقة سلسلة، Dexscreener كملاحظة سوق، وAnvil كتنفيذ محلي. وأكبر فجوة يجب معالجتها قبل توسيع scoring هي إنشاء عقد evidence/anchor موحد ثم بناء state diff وtoken ledger وreorg-safe ingestion؛ وإلا ستبقى الدرجة الموحدة تجميعاً لنتائج ناقصة بدلاً من risk engine قابل للتدقيق وإعادة التشغيل.
+
+## Addendum — v0.4 Intelligence + Correlation
+
+أضيفت الآن طبقة Intelligence محلية فوق الـledger الموجود: holders، LP، deployer/distribution candidate، wallet clusters، historical behavior، إضافة إلى risk features وقواعد scoring جديدة. كما أضيف Unified correlation فعلي يربط الأدلة من Static وIntelligence وState-Fork مع market context.
+
+هذه المرحلة لا تستخدم GoPlus أو TokenSniffer أو De.Fi أو أي security provider خارجي. DexScreener بقي مصدر ملاحظات سوقية، وAlchemy/RPC بقي مصدر حقائق السلسلة والتنفيذ.
+
+ما يزال creator/deployer verification الكامل يحتاج مسارًا محليًا تاريخيًا/trace-aware في مرحلة لاحقة عندما تكون قدرة archive/trace متاحة؛ لذلك لا يتم اعتبار أول مستلم mint هو deployer المؤكد تلقائيًا.
+
+
+# ملحق v0.7 — بعد مواصلة التنفيذ
+
+| الفجوة | حالة v0.7 | الدليل |
+|---|---|---|
+| Shared Alchemy gateway boundary | منفذة جزئيًا/فعليًا داخل AlchemySource | `AlchemySource.gateway` + gateway wrappers |
+| Raw evidence durable store | منفذة اختياريًا | `SQLiteEvidenceStore` |
+| Fresh chain reads for reorg-sensitive paths | منفذة | `fresh=True` في PollingChainIndexer وAlchemySource logs/anchor |
+| Reorg-aware polling/backfill | منفذة | `PollingChainIndexer` + `CanonicalChain` |
+| Replacement block reconciliation | منفذة | CanonicalChain يعالج block replacement قبل head |
+| Durable job claim/recovery | منفذة | `JobStore.claim/recover_running` |
+| Pending-job resume | منفذة | ScanService startup recovery |
+| Local observability | منفذة جزئيًا | `/v1/metrics` + gateway/job latency metrics |
+| Shared Unified anchor block | منفذة عند توفر chain source | Unified resolves one block number before fork |
+| Policy schema validation | منفذة | `PolicyRegistry.validate()` |
+| WebSocket | غير منفذة | ما زال polling |
+| Distributed workers | غير منفذة | ThreadPool + SQLite فقط |
+| Multi-provider failover | غير منفذة | لا يوجد router متعدد المزودين |
+| Sandbox/resource limits | غير منفذة | لا توجد container/process limits |
+| Fuzzing/Symbolic | غير منفذة | Phase 7 مؤجلة |
+| FP/FN statistical calibration | غير مكتملة | regression/adversarial unit tests فقط |
+
+## التحقق v0.7
+
+- `pytest`: **75 passed**
+- `compileall`: **PASS**
+- لا transactions حقيقية أُرسلت؛ التنفيذ الديناميكي محلي على fork.
+
+# ملحق v0.8 — إغلاق الفجوات المتبقية كطبقات تنفيذية
+
+| الفجوة | حالة v0.8 | الدليل |
+|---|---|---|
+| WebSocket | منفذة | `smartrisk/indexer/websocket.py` + integration test |
+| Distributed workers | منفذة | `smartrisk/service/distributed.py` + Redis Streams adapter + worker test |
+| Sandboxing | منفذة مع gate على مستوى host | `smartrisk/core/sandbox.py` + Slither/custom-worker integration |
+| Multi-provider failover | منفذة | `smartrisk/core/multi_provider.py` + gateway/provider tests |
+| Fuzzing | منفذة | `smartrisk/validation.py` + `StateForkEngine.analyze_fuzz()` |
+| Symbolic execution | bounded/optional منفذة | `EvmBoundedSymbolicAnalyzer` + optional Z3 |
+| FP/FN calibration | الآلية منفذة؛ بيانات الإنتاج مطلوبة | `StatisticalCalibrator` مع holdout وWilson/Brier/ECE |
+
+## قرار البنية
+الـWebSocket لا يصبح canonical state source؛ هو signal سريع فقط، وكل head يؤدي إلى backfill/reconciliation من RPC. والـRedis consumer group هو طبقة التوزيع، بينما التقرير النهائي يبقى idempotent بواسطة `run_id` ثابت لكل job.
+
+## ملحق CLI v0.8
+
+```text
+smartrisk-realtime   WebSocket + canonical backfill
+smartrisk-worker     Redis Streams worker
+smartrisk-deep       fuzz / bounded symbolic
+smartrisk-calibrate  FP/FN calibration report
+```
+
+
+# ملحق v0.8.1 — Hardening
+
+| البند | الحالة | الدليل |
+|---|---|---|
+| Redis long-job reclaim | منفذة | default 15m + `--claim-idle-ms` |
+| WebSocket transport failover | منفذة | integration regression test |
+| Sandbox workspace mapping | منفذة | bubblewrap `/work` + writable mounts + explicit network mode |
+| Native Foundry fuzz adapter | منفذة اختيارياً | `smartrisk/core/foundry.py` |
+| Halmos symbolic adapter | منفذة اختيارياً | `FoundryDeepRunner(mode="symbolic")` |
+| Calibration leakage controls | منفذة | group-aware holdout + duplicate ID validation |
+
+# ملحق v0.9.0 — Accuracy Foundation
+
+| البند | حالة v0.9.0 | الملاحظة |
+|---|---|---|
+| Canonical/data correctness | منفذة جزئيًا ومحسنة | feature dedup + provider truth + anchor discipline |
+| Semantic static analysis | محسنة بوضوح | recursive writes/auth + reflection/trading signals |
+| Honeypot verification | محسنة بوضوح | multi-size sell + transfer-only + failure cause |
+| Dynamic tax | منفذة ومحسنة | measurable token deltas + threshold/dynamic behavior |
+| Holder/history normalization | محسنة | pair/burn exclusion + mature sample gate |
+| Fuzzer | محسنة | selector-preserving mutations |
+| Symbolic guidance | محسنة | guard/risk hints، bounded فقط |
+| Decisive Verdict | منفذة | Unified + State-Fork verdict fields |
+| Evidence-driven correlation | لاحقًا | لم تغلق بالكامل بعد |
+| Adversarial corpus | لاحقًا | لم تعتمد بيانات حقيقية موسومة بعد |
+| Statistical calibration | الآلية موجودة؛ corpus مطلوب | لا ادعاء بدقة إنتاجية بعد |
+| Ethereum/BNB regression gate | لاحقًا | يحتاج corpus/fixtures موحد للشبكتين |

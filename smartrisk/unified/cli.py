@@ -26,6 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
     scan.add_argument("--block-number", type=int)
     scan.add_argument("--compiler-version")
     scan.add_argument("--window-blocks", type=int, default=10_000)
+    scan.add_argument("--deployer-address")
     serve = subparsers.add_parser("serve", help="run local scan API")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8787)
@@ -53,6 +54,7 @@ def _request(args: argparse.Namespace) -> UnifiedRequest:
         block_number=args.block_number if args.block_number is not None else payload.get("block_number"),
         compiler_version=args.compiler_version or payload.get("compiler_version"),
         window_blocks=args.window_blocks if args.window_blocks != 10_000 or "window_blocks" not in payload else payload["window_blocks"],
+        deployer_address=args.deployer_address or payload.get("deployer_address"),
     )
 
 

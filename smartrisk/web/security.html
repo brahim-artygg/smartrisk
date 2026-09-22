@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SmartRisk — Security</title>
+  <meta name="description" content="How SmartRisk approaches security and how to report a vulnerability.">
+  <link rel="stylesheet" href="/assets/info.css">
+</head>
+<body>
+  <main class="info-shell">
+    <nav class="info-nav" aria-label="Page navigation">
+      <a class="brand" href="/">SmartRisk</a>
+      <a class="back-link" href="/">Back to scanner</a>
+    </nav>
+    <article class="info-card">
+      <div class="eyebrow">Security</div>
+      <h1>Security is part of the product.</h1>
+      <p class="lead">SmartRisk handles account data, scan infrastructure, and on-chain analysis. We design the service so a failure in one area does not automatically expose everything else.</p>
+      <div class="info-content">
+        
+<section><h2>Account security</h2><p>Passwords are stored as strong password hashes rather than plain text. Verification and password-reset tokens are single-use and stored in hashed form. Login sessions use secure server-side session records with protected cookies.</p></section>
+<section><h2>Scan infrastructure</h2><p>Scan requests are validated before they reach the analysis pipeline, and public endpoints are rate limited to reduce abuse. The analysis engine remains separate from the account layer, which also lets visitors run scans without creating an account.</p></section>
+<section><h2>Reporting a security issue</h2><p>If you find a security problem in SmartRisk, please do not publish sensitive details before we have a chance to investigate. Send the affected URL or endpoint, steps to reproduce, and a brief description of the impact to <a href="mailto:security@smartrisk.io">security@smartrisk.io</a>.</p></section>
+<section><h2>What we need from you</h2><p>A useful report is usually short and specific. Screenshots, sample requests, timestamps, and proof-of-concept steps are helpful when they are safe to share.</p></section>
+
+      </div>
+    </article>
+    <footer class="site-footer" aria-label="SmartRisk footer">
+  <div class="footer-grid">
+    <div class="footer-group">
+      <h2>Product</h2>
+      <a href="/how-it-works">How it works</a>
+      <a href="/methodology">Methodology</a>
+      <a href="/supported-networks">Supported networks</a>
+    </div>
+    <div class="footer-group">
+      <h2>Learn</h2>
+      <a href="/risk-library">Risk library</a>
+      <a href="/faq">FAQ</a>
+      <a href="/disclaimer">Disclaimer</a>
+    </div>
+    <div class="footer-group">
+      <h2>Trust</h2>
+      <a href="/about">About SmartRisk</a>
+      <a href="/security">Security</a>
+      <a href="/privacy">Privacy policy</a>
+      <a href="/terms">Terms of service</a>
+      <a href="/contact">Contact us</a>
+    </div>
+  </div>
+</footer>
+  </main>
+</body>
+</html>

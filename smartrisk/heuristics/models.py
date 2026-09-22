@@ -71,7 +71,7 @@ class RiskScore:
     unknowns: list[str] = field(default_factory=list)
     features: list[Feature] = field(default_factory=list)
     observations: list[RawObservation] = field(default_factory=list)
-    policy_version: str = "score-v0.1"
+    policy_version: str = "score-v0.3"
     hard_blocked: bool = False
 
     def to_dict(self) -> dict[str, Any]:
@@ -86,6 +86,7 @@ class HeuristicsRun:
     risk: RiskScore
     capability: dict[str, Any] = field(default_factory=dict)
     diagnostics: list[str] = field(default_factory=list)
+    intelligence: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

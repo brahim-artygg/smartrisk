@@ -85,12 +85,14 @@ class RawAlchemyEvidence:
     page_key: str | None = None
     removed: bool = False
     error: str | None = None
+    latency_ms: float | None = None
 
     @classmethod
     def create(cls, method: str, request_id: str, params: list[Any], raw_response: Any, **kwargs: Any) -> "RawAlchemyEvidence":
+        provider = str(kwargs.pop("provider", "alchemy"))
         params_hash = hashlib.sha256(json.dumps(params, sort_keys=True, separators=(",", ":"), default=str).encode()).hexdigest()
-        evidence_id = f"raw:alchemy:{method}:{params_hash}:{request_id}"
-        return cls(evidence_id, "alchemy", method, request_id, params_hash, params, raw_response, datetime.now(timezone.utc).isoformat(), **kwargs)
+        evidence_id = f"raw:{provider}:{method}:{params_hash}:{request_id}"
+        return cls(evidence_id, provider, method, request_id, params_hash, params, raw_response, datetime.now(timezone.utc).isoformat(), **kwargs)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

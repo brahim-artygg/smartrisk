@@ -1,0 +1,26 @@
+{
+  "release": "0.7.0",
+  "source_baseline": "smartrisk_engine_v0.6.zip",
+  "verification": {
+    "pytest": "75 passed",
+    "compileall": "pass"
+  },
+  "implemented": [
+    "shared Alchemy gateway boundary",
+    "durable bounded raw evidence store",
+    "fresh block/log reads for reorg-sensitive polling",
+    "reorg-aware polling/backfill indexer",
+    "atomic durable job claims and stale recovery",
+    "service metrics endpoint",
+    "shared anchor block resolution",
+    "policy schema validation"
+  ],
+  "not_implemented": [
+    "WebSocket subscriptions",
+    "distributed queue/workers",
+    "process/container sandbox resource limits",
+    "multi-provider adaptive failover",
+    "fuzzing/symbolic execution",
+    "statistical FP/FN calibration"
+  ]
+}

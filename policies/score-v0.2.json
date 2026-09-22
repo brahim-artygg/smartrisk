@@ -1,15 +1,107 @@
 {
-  "version": "score-v0.2",
   "families": {
-    "market": {"cap": 55},
-    "chain": {"cap": 45}
+    "chain": {
+      "cap": 45
+    },
+    "contract": {
+      "cap": 30
+    },
+    "market": {
+      "cap": 55
+    }
   },
   "rules": {
-    "market.no_pair": {"weight": 35, "family": "market", "hard_block": false, "confidence_factor": 0.8, "references": ["dexscreener.token_pairs"]},
-    "market.low_liquidity": {"weight": 25, "family": "market", "hard_block": false, "confidence_factor": 0.8, "references": ["dexscreener.liquidity"]},
-    "market.sell_activity_absent": {"weight": 25, "family": "market", "hard_block": false, "confidence_factor": 0.7, "references": ["dexscreener.txns.h24"]},
-    "market.price_divergence": {"weight": 15, "family": "market", "hard_block": false, "confidence_factor": 0.7, "references": ["dexscreener.priceUsd"]},
-    "market.stale_pair": {"weight": 8, "family": "market", "hard_block": false, "confidence_factor": 0.5, "references": ["dexscreener.pairCreatedAt"]},
-    "chain.no_contract_code": {"weight": 45, "family": "chain", "hard_block": true, "confidence_factor": 1.0, "references": ["alchemy.eth_getCode"]}
-  }
+    "chain.no_contract_code": {
+      "confidence_factor": 1.0,
+      "family": "chain",
+      "hard_block": true,
+      "references": [
+        "alchemy.eth_getCode"
+      ],
+      "weight": 45
+    },
+    "contract.delegatecall_pattern": {
+      "confidence_factor": 0.9,
+      "family": "contract",
+      "hard_block": false,
+      "references": [
+        "evm.opcode.delegatecall"
+      ],
+      "weight": 6
+    },
+    "contract.proxy_detected": {
+      "confidence_factor": 0.9,
+      "family": "contract",
+      "hard_block": false,
+      "references": [
+        "eip1967.storage"
+      ],
+      "weight": 4
+    },
+    "contract.selfdestruct_pattern": {
+      "confidence_factor": 0.9,
+      "family": "contract",
+      "hard_block": false,
+      "references": [
+        "evm.opcode.selfdestruct"
+      ],
+      "weight": 15
+    },
+    "contract.time_or_block_logic": {
+      "confidence_factor": 0.9,
+      "family": "contract",
+      "hard_block": false,
+      "references": [
+        "evm.opcode.timestamp-number"
+      ],
+      "weight": 3
+    },
+    "market.low_liquidity": {
+      "confidence_factor": 0.8,
+      "family": "market",
+      "hard_block": false,
+      "references": [
+        "dexscreener.liquidity"
+      ],
+      "weight": 25
+    },
+    "market.no_pair": {
+      "confidence_factor": 0.8,
+      "family": "market",
+      "hard_block": false,
+      "references": [
+        "dexscreener.token_pairs"
+      ],
+      "weight": 35
+    },
+    "market.price_divergence": {
+      "confidence_factor": 0.7,
+      "family": "market",
+      "hard_block": false,
+      "references": [
+        "dexscreener.priceUsd"
+      ],
+      "weight": 15
+    },
+    "market.sell_activity_absent": {
+      "confidence_factor": 0.7,
+      "family": "market",
+      "hard_block": false,
+      "references": [
+        "dexscreener.txns.h24"
+      ],
+      "weight": 25
+    },
+    "market.stale_pair": {
+      "confidence_factor": 0.0,
+      "family": "market",
+      "hard_block": false,
+      "informational": true,
+      "references": [
+        "dexscreener.pairCreatedAt"
+      ],
+      "weight": 0
+    }
+  },
+  "version": "score-v0.2"
 }

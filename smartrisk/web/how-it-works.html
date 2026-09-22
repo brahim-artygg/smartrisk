@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SmartRisk — How It Works</title>
+  <meta name="description" content="See how SmartRisk turns a contract address into a risk report.">
+  <link rel="stylesheet" href="/assets/info.css">
+</head>
+<body>
+  <main class="info-shell">
+    <nav class="info-nav" aria-label="Page navigation">
+      <a class="brand" href="/">SmartRisk</a>
+      <a class="back-link" href="/">Back to scanner</a>
+    </nav>
+    <article class="info-card">
+      <div class="eyebrow">How It Works</div>
+      <h1>One address. Several checks. One report.</h1>
+      <p class="lead">You do not need to know which chain the contract is on or which checks to run. SmartRisk takes care of the analysis pipeline and presents the important signals together.</p>
+      <div class="info-content">
+        
+<section><h2>1. Enter the contract</h2><p>Paste an EVM contract address into the scanner. No account is required to start a scan.</p></section>
+<section><h2>2. SmartRisk finds the network</h2><p>The service checks the supported EVM networks and resolves where the contract exists before starting the full analysis.</p></section>
+<section><h2>3. The engine checks different risk layers</h2><p>Static analysis looks at the code and permissions. State-fork checks simulate important actions such as buying, approving, and selling. Intelligence checks add liquidity, holder, market, and behavioral context.</p></section>
+<section><h2>4. Evidence is combined</h2><p>SmartRisk correlates the signals instead of treating every warning as an automatic verdict. Missing evidence is kept as unknown rather than silently treated as safe.</p></section>
+<section><h2>5. Review the report</h2><p>The results page starts with a quick risk overview, then lets you open the detailed permissions, vulnerabilities, and technical checks behind it.</p></section>
+
+      </div>
+    </article>
+    <footer class="site-footer" aria-label="SmartRisk footer">
+  <div class="footer-grid">
+    <div class="footer-group">
+      <h2>Product</h2>
+      <a href="/how-it-works">How it works</a>
+      <a href="/methodology">Methodology</a>
+      <a href="/supported-networks">Supported networks</a>
+    </div>
+    <div class="footer-group">
+      <h2>Learn</h2>
+      <a href="/risk-library">Risk library</a>
+      <a href="/faq">FAQ</a>
+      <a href="/disclaimer">Disclaimer</a>
+    </div>
+    <div class="footer-group">
+      <h2>Trust</h2>
+      <a href="/about">About SmartRisk</a>
+      <a href="/security">Security</a>
+      <a href="/privacy">Privacy policy</a>
+      <a href="/terms">Terms of service</a>
+      <a href="/contact">Contact us</a>
+    </div>
+  </div>
+</footer>
+  </main>
+</body>
+</html>

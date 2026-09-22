@@ -1,0 +1,30 @@
+{
+  "release": "0.8.0",
+  "source_baseline": "smartrisk_engine_v0.7.zip",
+  "verification": {
+    "pytest": "95 passed",
+    "compileall": "pass"
+  },
+  "implemented": [
+    "reconnectable eth_subscribe(newHeads) transport with canonical backfill bridge",
+    "Redis Streams consumer-group distributed scan queue with XAUTOCLAIM recovery",
+    "process-isolated scan runner with CPU/memory/wall-time limits",
+    "static-analysis command sandbox with POSIX rlimits and optional bubblewrap network isolation",
+    "multi-provider RPC routing with health, circuit breaking, capability-aware method fallback and provider evidence",
+    "deterministic mutation fuzzing with fork execution and trace coverage guidance",
+    "bounded EVM symbolic branch guidance with optional Z3 selector solving",
+    "holdout-based FP/FN calibration report with Wilson intervals, Brier score and ECE",
+    "deep-scan and distributed-worker CLI entry points"
+  ],
+  "runtime_requirements": {
+    "realtime": "pip install .[realtime]",
+    "distributed": "pip install .[distributed] with Redis 6.2+ recommended for XAUTOCLAIM",
+    "deep": "pip install .[deep]",
+    "production": "pip install .[production] and provide host-level sandbox capability"
+  },
+  "remaining_data_or_host_gates": [
+    "FP/FN production calibration requires a real labeled corpus; no synthetic labels are used as production truth.",
+    "bubblewrap network isolation is host-dependent and is reported explicitly when unavailable.",
+    "Redis, WebSocket URLs, Anvil and Z3 are optional runtime capabilities and are never represented as available when absent."
+  ]
+}

@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SmartRisk — Scan Results</title>
+  <meta name="description" content="SmartRisk contract risk analysis results.">
+  <link rel="stylesheet" href="/assets/results.css">
+</head>
+<body>
+  <main class="results-shell">
+    <section class="report" aria-label="SmartRisk scan results">
+      <header class="report-header">
+        <div class="brand-line">
+          <a class="brand" href="/" aria-label="SmartRisk home">SmartRisk</a>
+          <div class="header-actions"><a id="account-link" class="header-link" href="/auth?mode=login">Login</a><a class="new-scan" href="/">New scan</a></div>
+        </div>
+
+        <div id="report-summary" class="summary-grid">
+          <div id="gauge" class="risk-gauge" aria-label="Risk score">
+            <div class="gauge-inner">
+              <strong id="risk-score">—</strong>
+              <span id="risk-caption">ANALYZING</span>
+            </div>
+          </div>
+
+          <div class="summary-copy">
+            <div class="network-row">
+              <span id="network-name" class="network-chip">Detecting network</span>
+              <button id="copy-address" class="icon-button" type="button" aria-label="Copy contract address">Copy</button>
+            </div>
+            <div id="contract-address" class="contract-address">—</div>
+            <h1 id="risk-title">Preparing your report</h1>
+            <p id="risk-explanation">SmartRisk is assembling the available evidence for this contract.</p>
+            <div id="top-badges" class="top-badges"></div>
+          </div>
+        </div>
+
+        <div id="source-strip" class="source-strip" aria-label="Evidence coverage"></div>
+      </header>
+
+      <section class="card-grid" aria-label="Risk overview">
+        <article id="honeypot-card" class="info-card">
+          <div class="card-heading"><span class="card-icon">◌</span><h2>Honeypot</h2></div>
+          <div id="honeypot-status" class="card-value">—</div>
+          <div id="honeypot-detail" class="card-detail">—</div>
+        </article>
+
+        <article id="liquidity-card" class="info-card">
+          <div class="card-heading"><span class="card-icon">⌁</span><h2>Liquidity</h2></div>
+          <div id="liquidity-status" class="card-value">—</div>
+          <div id="liquidity-detail" class="card-detail">—</div>
+        </article>
+
+        <article id="holders-card" class="info-card">
+          <div class="card-heading"><span class="card-icon">◉</span><h2>Holders</h2></div>
+          <div id="holders-status" class="card-value">—</div>
+          <div id="holders-detail" class="card-detail">—</div>
+        </article>
+
+        <article id="ownership-card" class="info-card">
+          <div class="card-heading"><span class="card-icon">◍</span><h2>Ownership</h2></div>
+          <div id="ownership-status" class="card-value">—</div>
+          <div id="ownership-detail" class="card-detail">—</div>
+        </article>
+      </section>
+
+      <section class="module-grid" aria-label="Detailed analysis">
+        <button class="module-card" type="button" data-panel="permissions-panel">
+          <span>Permissions matrix</span><span aria-hidden="true">›</span>
+        </button>
+        <button class="module-card" type="button" data-panel="vulnerabilities-panel">
+          <span>Vulnerability inventory</span><span aria-hidden="true">›</span>
+        </button>
+        <button class="module-card" type="button" data-panel="technical-panel">
+          <span>Technical checks</span><span aria-hidden="true">›</span>
+        </button>
+      </section>
+
+      <section id="details" class="details-stack">
+        <article id="permissions-panel" class="detail-panel" hidden>
+          <div class="panel-title"><h2>Permissions matrix</h2><button class="panel-close" type="button">Close</button></div>
+          <div id="permissions-content" class="panel-content"></div>
+        </article>
+
+        <article id="vulnerabilities-panel" class="detail-panel" hidden>
+          <div class="panel-title"><h2>Vulnerability inventory</h2><button class="panel-close" type="button">Close</button></div>
+          <div id="vulnerabilities-content" class="panel-content"></div>
+        </article>
+
+        <article id="technical-panel" class="detail-panel" hidden>
+          <div class="panel-title"><h2>Technical checks</h2><button class="panel-close" type="button">Close</button></div>
+          <div id="technical-content" class="panel-content"></div>
+        </article>
+      </section>
+
+      <footer class="report-footer">
+        <span id="report-meta">—</span>
+        <span class="report-footer-links">
+          <a href="/">Scan another contract</a>
+          <a href="/contact">Contact</a>
+          <a href="/privacy">Privacy</a>
+        </span>
+      </footer>
+      <footer class="site-footer" aria-label="SmartRisk footer">
+        <div class="footer-grid">
+          <div class="footer-group"><h2>Product</h2><a href="/how-it-works">How it works</a><a href="/methodology">Methodology</a><a href="/supported-networks">Supported networks</a></div>
+          <div class="footer-group"><h2>Learn</h2><a href="/risk-library">Risk library</a><a href="/faq">FAQ</a><a href="/disclaimer">Disclaimer</a></div>
+          <div class="footer-group"><h2>Trust</h2><a href="/about">About SmartRisk</a><a href="/security">Security</a><a href="/privacy">Privacy policy</a><a href="/terms">Terms of service</a><a href="/contact">Contact us</a></div>
+        </div>
+      </footer>
+    </section>
+  </main>
+  <script src="/assets/results.js" defer></script>
+</body>
+</html>

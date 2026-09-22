@@ -27,6 +27,13 @@ class SimulationScenario:
     gas_limit: int | None = None
     description: str = ""
     observed_tokens: tuple[str, ...] = ()
+    observed_allowances: tuple[tuple[str, str], ...] = ()
+    observed_pairs: tuple[str, ...] = ()
+    category: str = "generic"
+    risk_tags: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
     def rpc_transaction(self) -> dict[str, str]:
         tx: dict[str, str] = {
@@ -67,6 +74,8 @@ class SimulationResult:
     trace: dict[str, Any] | None = None
     return_data: str | None = None
     revert_data: str | None = None
+    revert_reason: str | None = None
+    revert_info: dict[str, Any] | None = None
     error: str | None = None
     logs: list[dict[str, Any]] = field(default_factory=list)
     state_diff: dict[str, Any] | None = None
@@ -87,6 +96,45 @@ class HoneypotResult:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+@dataclass
+class TradeAttemptResult:
+    mode: str
+    classification: Literal["sell_succeeded", "sell_blocked", "transfer_succeeded", "transfer_blocked", "buy_failed", "approve_failed", "unknown"]
+    buy: SimulationResult | None = None
+    approve: SimulationResult | None = None
+    pre_buy_approve: SimulationResult | None = None
+    sell: SimulationResult | None = None
+    observed_buy_token_delta: int | None = None
+    analysis: dict[str, Any] = field(default_factory=dict)
+    unknown_reasons: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class TradeMatrixRun:
+    run_id: str
+    status: Literal["complete", "partial", "unknown", "failed"]
+    anchor: BlockAnchor | None
+    token_address: str
+    pair_address: str | None
+    plan: dict[str, Any] = field(default_factory=dict)
+    attempts: list[TradeAttemptResult] = field(default_factory=list)
+    hard_signals: list[dict[str, Any]] = field(default_factory=list)
+    unknown_reasons: list[str] = field(default_factory=list)
+    verdict: str = "UNVERIFIED"
+    verdict_label: str = "UNVERIFIED"
+    primary_detection: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    def to_json(self) -> str:
+        import json
+        return json.dumps(self.to_dict(), indent=2, sort_keys=True)
 
 
 @dataclass

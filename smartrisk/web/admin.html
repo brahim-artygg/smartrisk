@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SmartRisk Admin</title>
+<link rel="stylesheet" href="/assets/admin.css">
+</head>
+<body>
+<div class="admin-app">
+  <aside class="sidebar">
+    <div class="brand"><span class="brand-mark">S</span><div><strong>SmartRisk</strong><small>Admin Console</small></div></div>
+    <nav id="side-nav">
+      <button data-section="overview" class="active"><span>⌂</span>Overview</button>
+      <button data-section="users"><span>◉</span>Users</button>
+      <button data-section="keys"><span>⌁</span>API Keys</button>
+      <button data-section="plans"><span>◫</span>Plans</button>
+      <button data-section="subscriptions"><span>↻</span>Subscriptions</button>
+      <button data-section="payments"><span>＄</span>Payments</button>
+      <button data-section="coupons"><span>%</span>Coupons</button>
+      <button data-section="grants"><span>✦</span>Grants</button>
+      <button data-section="ads"><span>▣</span>Ads & Promos</button>
+      <button data-section="embeds"><span>⊞</span>Embeds</button>
+      <button data-section="settings"><span>⚙</span>Platform</button>
+      <button data-section="audit"><span>◫</span>Audit Log</button>
+    </nav>
+    <div class="sidebar-bottom"><a href="/" class="back-link">← Back to SmartRisk</a><button id="logout" class="logout">Sign out</button></div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div><span class="eyebrow">CONTROL CENTER</span><h1 id="page-title">Overview</h1></div>
+      <div class="topbar-right"><span id="admin-email" class="admin-chip">Loading…</span><button id="refresh" class="ghost">Refresh</button></div>
+    </header>
+    <div id="alert" class="alert" hidden></div>
+
+    <section id="section-overview" class="section active">
+      <div id="stats-grid" class="stats-grid"></div>
+      <div class="two-col">
+        <div class="panel"><div class="panel-head"><div><h2>Platform controls</h2><p>Critical switches that affect public access.</p></div></div><div id="quick-settings" class="switch-list"></div></div>
+        <div class="panel"><div class="panel-head"><div><h2>API plans</h2><p>Current limits and pricing.</p></div><button class="small-btn" data-section="plans">Manage</button></div><div id="overview-plans"></div></div>
+      </div>
+    </section>
+
+    <section id="section-users" class="section">
+      <div class="section-toolbar"><div><h2>Users</h2><p>Accounts, roles and access state.</p></div><div class="toolbar-actions"><input id="user-search" placeholder="Search email or ID"><select id="user-status"><option value="">All statuses</option><option>active</option><option>suspended</option><option>deleted</option></select><button id="load-users" class="small-btn">Search</button></div></div>
+      <div class="panel table-panel"><table><thead><tr><th>User</th><th>Status</th><th>Plan</th><th>Keys</th><th>Created</th><th></th></tr></thead><tbody id="users-table"></tbody></table></div>
+    </section>
+
+    <section id="section-keys" class="section">
+      <div class="section-toolbar"><div><h2>API Keys</h2><p>Disable or permanently revoke developer credentials.</p></div><div class="toolbar-actions"><input id="key-search" placeholder="Search owner, name or key ID"><select id="key-status"><option value="">All</option><option>active</option><option>disabled</option><option>revoked</option></select><button id="load-keys" class="small-btn">Search</button></div></div>
+      <div class="panel table-panel"><table><thead><tr><th>Key</th><th>Owner</th><th>Plan</th><th>Status</th><th>Last used</th><th></th></tr></thead><tbody id="keys-table"></tbody></table></div>
+    </section>
+
+    <section id="section-plans" class="section">
+      <div class="section-toolbar"><div><h2>API Plans</h2><p>Two plans only. Changes apply to future API requests immediately.</p></div></div>
+      <div id="plans-grid" class="plans-admin-grid"></div>
+    </section>
+
+    <section id="section-subscriptions" class="section">
+      <div class="section-toolbar"><div><h2>Subscriptions</h2><p>Assign, extend, suspend or expire a customer's API access.</p></div></div>
+      <div class="panel form-panel"><div class="inline-form"><input id="sub-user-id" placeholder="User ID"><select id="sub-plan"></select><select id="sub-status"><option>active</option><option>trialing</option><option>past_due</option><option>canceled</option><option>expired</option></select><input id="sub-end" placeholder="Ends at (ISO optional)"><button id="save-sub" class="primary">Save subscription</button></div></div>
+      <div class="panel table-panel"><table><thead><tr><th>User</th><th>Plan</th><th>Status</th><th>Ends</th></tr></thead><tbody id="subs-table"></tbody></table></div>
+    </section>
+
+    <section id="section-payments" class="section">
+      <div class="section-toolbar"><div><h2>Payments</h2><p>USDT payment records, blockchain verification, and settlement status. Crypto checkout is connected to the configured Ethereum receiving address.</p></div><button id="new-payment" class="small-btn">Record payment</button></div>
+      <div class="panel table-panel"><table><thead><tr><th>User</th><th>Amount</th><th>Network / Tx</th><th>Status</th><th>Invoice</th><th>Date</th><th></th></tr></thead><tbody id="payments-table"></tbody></table></div>
+    </section>
+
+    <section id="section-coupons" class="section">
+      <div class="section-toolbar"><div><h2>Coupons</h2><p>Create limited promotions without touching plan limits.</p></div><button id="new-coupon" class="small-btn">New coupon</button></div>
+      <div class="panel table-panel"><table><thead><tr><th>Code</th><th>Discount</th><th>Plan</th><th>Usage</th><th>Validity</th><th>Status</th><th></th></tr></thead><tbody id="coupons-table"></tbody></table></div>
+    </section>
+
+    <section id="section-grants" class="section">
+      <div class="section-toolbar"><div><h2>Grants</h2><p>Issue promotional developer access with an explicit reason and expiry.</p></div><button id="new-grant" class="small-btn">New grant</button></div>
+      <div class="panel table-panel"><table><thead><tr><th>User</th><th>Plan</th><th>Reason</th><th>Ends</th><th>Status</th><th></th></tr></thead><tbody id="grants-table"></tbody></table></div>
+    </section>
+
+    <section id="section-ads" class="section">
+      <div class="section-toolbar"><div><h2>Ads & Promotions</h2><p>Manage site banners and developer-facing promotions.</p></div><button id="new-ad" class="small-btn">New promotion</button></div>
+      <div class="ads-grid" id="ads-grid"></div>
+    </section>
+
+    <section id="section-embeds" class="section">
+      <div class="section-toolbar"><div><h2>Embed Applications</h2><p>Manage partner widgets, allowed origins, quotas and usage.</p></div><button id="new-embed" class="small-btn">New application</button></div>
+      <div class="panel table-panel"><table><thead><tr><th>Application</th><th>Allowed origins</th><th>Quota / usage</th><th>Rate</th><th>Status</th><th>Created</th><th></th></tr></thead><tbody id="embeds-table"></tbody></table></div>
+    </section>
+
+    <section id="section-settings" class="section">
+      <div class="section-toolbar"><div><h2>Platform Controls</h2><p>Operational switches and safety controls.</p></div></div>
+      <div id="settings-list" class="settings-grid"></div>
+    </section>
+
+    <section id="section-audit" class="section">
+      <div class="section-toolbar"><div><h2>Audit Log</h2><p>Every administrative mutation is recorded with actor, target and timestamp.</p></div></div>
+      <div class="panel table-panel"><table><thead><tr><th>Time</th><th>Admin</th><th>Action</th><th>Target</th><th>Details</th></tr></thead><tbody id="audit-table"></tbody></table></div>
+    </section>
+  </main>
+</div>
+
+<div id="modal" class="modal" hidden><div class="modal-backdrop"></div><div class="modal-card"><div class="modal-head"><div><span id="modal-kicker" class="eyebrow">ADMIN</span><h3 id="modal-title">Action</h3></div><button id="modal-close" class="icon-btn">×</button></div><div id="modal-body"></div></div></div>
+<script src="/assets/admin.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SmartRisk — Methodology</title>
+  <meta name="description" content="The analysis methodology behind SmartRisk risk reports.">
+  <link rel="stylesheet" href="/assets/info.css">
+</head>
+<body>
+  <main class="info-shell">
+    <nav class="info-nav" aria-label="Page navigation">
+      <a class="brand" href="/">SmartRisk</a>
+      <a class="back-link" href="/">Back to scanner</a>
+    </nav>
+    <article class="info-card">
+      <div class="eyebrow">Methodology</div>
+      <h1>Risk signals are stronger when the evidence agrees.</h1>
+      <p class="lead">SmartRisk uses multiple analysis layers because contract risk is rarely visible from one source alone.</p>
+      <div class="info-content">
+        
+<section><h2>Static analysis</h2><p>We inspect contract structure and known risk patterns, including ownership controls, upgradeability, privileged functions, trading restrictions, minting and burning behavior, and other implementation details.</p></section>
+<section><h2>State-fork analysis</h2><p>Where the required chain data is available, SmartRisk can reproduce the contract state in a forked environment and test important trading paths. This helps expose sell restrictions, transfer failures, dynamic fees, and other behavior that source-code inspection alone may miss.</p></section>
+<section><h2>On-chain intelligence</h2><p>Liquidity, holders, transfers, deployer activity, contract relationships, and market observations add context around the code. These signals are treated as evidence, not as proof of intent.</p></section>
+<section><h2>Correlation and verdicts</h2><p>The final report combines the available signals. Strong evidence can trigger a hard verdict, while incomplete evidence is represented as unknown or limited coverage. The goal is to be explicit about what the system knows and what it does not.</p></section>
+<section><div class="callout"><strong>Important.</strong><p style="margin-top:6px;">The methodology is designed to find risk signals, not to predict future price or guarantee a project's behavior.</p></div></section>
+
+      </div>
+    </article>
+    <footer class="site-footer" aria-label="SmartRisk footer">
+  <div class="footer-grid">
+    <div class="footer-group">
+      <h2>Product</h2>
+      <a href="/how-it-works">How it works</a>
+      <a href="/methodology">Methodology</a>
+      <a href="/supported-networks">Supported networks</a>
+    </div>
+    <div class="footer-group">
+      <h2>Learn</h2>
+      <a href="/risk-library">Risk library</a>
+      <a href="/faq">FAQ</a>
+      <a href="/disclaimer">Disclaimer</a>
+    </div>
+    <div class="footer-group">
+      <h2>Trust</h2>
+      <a href="/about">About SmartRisk</a>
+      <a href="/security">Security</a>
+      <a href="/privacy">Privacy policy</a>
+      <a href="/terms">Terms of service</a>
+      <a href="/contact">Contact us</a>
+    </div>
+  </div>
+</footer>
+  </main>
+</body>
+</html>

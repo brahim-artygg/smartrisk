@@ -29,11 +29,17 @@ class CanonicalChain:
             self.head = block.block_hash
             return {"reorg": False, "head": self.head, "replayed": self.rebuild()}
         current = self.blocks[self.head]
+        if block.block_hash == self.head:
+            return {"reorg": False, "head": self.head, "ignored": True}
         if block.parent_hash == self.head and block.number == current.number + 1:
             self.head = block.block_hash
             return {"reorg": False, "head": self.head, "replayed": self.rebuild()}
         if block.number < current.number:
-            return {"reorg": False, "head": self.head, "ignored": True}
+            ancestor = self._find_common_ancestor(block)
+            if ancestor is None:
+                return {"reorg": False, "head": self.head, "ignored": True, "reason": "older block is not on a known canonical branch"}
+            self.head = block.block_hash
+            return {"reorg": True, "common_ancestor": ancestor, "head": self.head, "replayed": self.rebuild()}
         ancestor = self._find_common_ancestor(block)
         if ancestor is None:
             raise ValueError("cannot find common ancestor for reorg")

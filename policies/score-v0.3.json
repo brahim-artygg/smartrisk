@@ -1,0 +1,160 @@
+{
+  "families": {
+    "chain": {
+      "cap": 45
+    },
+    "clusters": {
+      "cap": 20
+    },
+    "contract": {
+      "cap": 30
+    },
+    "deployer": {
+      "cap": 25
+    },
+    "historical": {
+      "cap": 20
+    },
+    "holders": {
+      "cap": 30
+    },
+    "liquidity": {
+      "cap": 30
+    },
+    "market": {
+      "cap": 55
+    }
+  },
+  "rules": {
+    "chain.no_contract_code": {
+      "family": "chain",
+      "hard_block": true,
+      "references": [
+        "alchemy.eth_getCode"
+      ],
+      "weight": 45
+    },
+    "clusters.coordinated_fanout": {
+      "confidence_factor": 0.75,
+      "family": "clusters",
+      "hard_block": false,
+      "weight": 8
+    },
+    "clusters.large_supply_cluster": {
+      "confidence_factor": 0.85,
+      "family": "clusters",
+      "hard_block": false,
+      "weight": 12
+    },
+    "contract.delegatecall_pattern": {
+      "family": "contract",
+      "hard_block": false,
+      "references": [
+        "evm.opcode.delegatecall"
+      ],
+      "weight": 6
+    },
+    "contract.proxy_detected": {
+      "family": "contract",
+      "hard_block": false,
+      "references": [
+        "eip1967.storage"
+      ],
+      "weight": 4
+    },
+    "contract.selfdestruct_pattern": {
+      "family": "contract",
+      "hard_block": false,
+      "references": [
+        "evm.opcode.selfdestruct"
+      ],
+      "weight": 15
+    },
+    "contract.time_or_block_logic": {
+      "family": "contract",
+      "hard_block": false,
+      "references": [
+        "evm.opcode.timestamp-number"
+      ],
+      "weight": 3
+    },
+    "deployer.candidate_supply_concentration": {
+      "confidence_factor": 0.9,
+      "family": "deployer",
+      "hard_block": false,
+      "weight": 12
+    },
+    "history.no_observed_sellers": {
+      "confidence_factor": 0.75,
+      "family": "historical",
+      "hard_block": false,
+      "weight": 12
+    },
+    "holders.top10_concentration": {
+      "confidence_factor": 0.9,
+      "family": "holders",
+      "hard_block": false,
+      "weight": 12
+    },
+    "holders.top20_concentration": {
+      "confidence_factor": 0.9,
+      "family": "holders",
+      "hard_block": false,
+      "weight": 18
+    },
+    "liquidity.lp_candidate_control": {
+      "confidence_factor": 0.9,
+      "family": "liquidity",
+      "hard_block": false,
+      "weight": 15
+    },
+    "liquidity.lp_top1_concentration": {
+      "confidence_factor": 0.9,
+      "family": "liquidity",
+      "hard_block": false,
+      "weight": 15
+    },
+    "market.low_liquidity": {
+      "family": "market",
+      "hard_block": false,
+      "references": [
+        "dexscreener.liquidity"
+      ],
+      "weight": 25
+    },
+    "market.no_pair": {
+      "family": "market",
+      "hard_block": false,
+      "references": [
+        "dexscreener.token_pairs"
+      ],
+      "weight": 35
+    },
+    "market.price_divergence": {
+      "family": "market",
+      "hard_block": false,
+      "references": [
+        "dexscreener.priceUsd"
+      ],
+      "weight": 15
+    },
+    "market.sell_activity_absent": {
+      "family": "market",
+      "hard_block": false,
+      "references": [
+        "dexscreener.txns.h24"
+      ],
+      "weight": 25
+    },
+    "market.stale_pair": {
+      "family": "market",
+      "hard_block": false,
+      "informational": true,
+      "references": [
+        "dexscreener.pairCreatedAt"
+      ],
+      "weight": 0
+    }
+  },
+  "version": "score-v0.3"
+}

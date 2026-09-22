@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SmartRisk — Developer API</title>
+  <meta name="description" content="SmartRisk Developer API access, plans, keys and usage.">
+  <link rel="stylesheet" href="/assets/developer.css">
+</head>
+<body>
+  <main class="dev-shell">
+    <header class="dev-header">
+      <a class="brand" href="/">SmartRisk</a>
+      <nav><a href="/auth?mode=account">Account</a><a href="/">Scanner</a></nav>
+    </header>
+
+    <section class="hero">
+      <div>
+        <p class="eyebrow">DEVELOPER API</p>
+        <h1>Build on SmartRisk.</h1>
+        <p class="hero-copy">Scan hundreds of contracts asynchronously and consume the same risk engine through structured JSON.</p>
+      </div>
+      <a class="docs-link" href="/developer-api.yaml" target="_blank" rel="noreferrer">Open API spec →</a>
+    </section>
+
+    <div id="dev-alert" class="alert" role="status" aria-live="polite" hidden></div>
+
+    <section class="card" id="account-card">
+      <div class="card-head">
+        <div><h2>API access</h2><p class="muted">Keys are shown only inside your authenticated account.</p></div>
+        <span id="plan-badge" class="badge">Loading…</span>
+      </div>
+      <div class="key-create">
+        <input id="key-name" type="text" maxlength="80" placeholder="Key name, e.g. production-bot">
+        <button id="create-key" type="button">Create API key</button>
+      </div>
+      <div id="new-key" class="new-key" hidden>
+        <p>Copy this key now. It will not be shown again.</p>
+        <code id="new-key-value"></code>
+        <button id="copy-key" type="button" class="secondary">Copy</button>
+      </div>
+      <div id="key-list" class="key-list"></div>
+    </section>
+
+    <section class="card" id="billing" hidden></section>
+
+    <section class="grid-two">
+      <div class="card">
+        <div class="card-head"><div><h2>Usage</h2><p class="muted">Current month.</p></div></div>
+        <div id="usage" class="usage">Loading…</div>
+      </div>
+      <div class="card">
+        <div class="card-head"><div><h2>Plans</h2><p class="muted">Choose a plan and pay securely with USDT on Ethereum Mainnet.</p></div></div>
+        <div id="plans" class="plans">Loading…</div>
+      </div>
+    </section>
+
+    <section class="card developer-notes">
+      <h2>Quick start</h2>
+      <pre><code>curl -X POST https://your-domain.example/v1/api/batches \
+  -H 'Content-Type: application/json' \
+  -H 'X-API-Key: sr_live_...' \
+  -H 'Idempotency-Key: batch-001' \
+  -d '{
+    "items": [
+      {"address": "0x...", "chain_id": "1"},
+      {"address": "0x...", "chain_id": "8453"}
+    ]
+  }'</code></pre>
+      <p class="muted">A batch is asynchronous. Poll <code>/v1/api/batches/{batch_id}</code>, or fetch paginated results when you need them.</p>
+    </section>
+  </main>
+  <footer class="site-footer"><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/contact">Contact</a></footer>
+  <script src="/assets/developer.js" defer></script>
+</body>
+</html>

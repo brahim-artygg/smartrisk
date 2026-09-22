@@ -8,6 +8,8 @@ import urllib.request
 import uuid
 from typing import Any
 
+from ..core.networks import get_network
+
 
 class AlchemyRpcError(RuntimeError):
     pass
@@ -23,15 +25,64 @@ class AlchemyRpcClient:
         chain: str = "eth-mainnet",
         timeout_seconds: float = 20.0,
         retries: int = 2,
+        failover: bool = True,
     ):
-        self.chain = chain
+        self.network = get_network(chain)
+        self.chain = self.network.rpc_chain
+        self.expected_chain_id = self.network.chain_id
         self.api_key = api_key or os.getenv("ALCHEMY_API_KEY")
-        self.rpc_url = rpc_url or self._url_from_env()
         self.timeout_seconds = timeout_seconds
         self.retries = retries
+        self._rpc_url = rpc_url or self._url_from_env()
+        self._router = None
+        if rpc_url is None and failover:
+            try:
+                from ..core.multi_provider import MultiProviderRpc
+                router = MultiProviderRpc.from_environment(chain=chain, timeout_seconds=timeout_seconds, retries_per_provider=max(0, retries - 1))
+                if len(router.providers) >= 2:
+                    self._router = router
+                    self._rpc_url = None
+            except (ImportError, TypeError, RuntimeError):
+                self._router = None
+
+    @property
+    def rpc_url(self) -> str | None:
+        return self._router.rpc_url if self._router is not None else self._rpc_url
+
+    @property
+    def provider_name(self) -> str:
+        return self._router.provider_name if self._router is not None else "alchemy"
+
+    @property
+    def last_provider(self) -> str | None:
+        return self._router.last_provider if self._router is not None else ("alchemy" if self._rpc_url else None)
+
+    def websocket_urls(self) -> list[tuple[str, str]]:
+        if self._router is not None:
+            return self._router.websocket_urls()
+        urls: list[tuple[str, str]] = []
+        alchemy_ws = os.getenv(f"SMARTRISK_{self.network.key.upper()}_WS_URL")
+        if not alchemy_ws and self.network.key == "ethereum":
+            alchemy_ws = os.getenv("ALCHEMY_WS_URL")
+        if not alchemy_ws and self.api_key:
+            alchemy_ws = f"wss://{self.chain}.g.alchemy.com/v2/{self.api_key}"
+        if alchemy_ws:
+            urls.append(("alchemy", alchemy_ws))
+        websocket_env = (("quicknode", "QUICKNODE_WS_URL"), ("chainstack", "CHAINSTACK_WS_URL")) if self.network.key == "ethereum" else (
+            ("quicknode", f"SMARTRISK_{self.network.key.upper()}_QUICKNODE_WS_URL"),
+            ("chainstack", f"SMARTRISK_{self.network.key.upper()}_CHAINSTACK_WS_URL"),
+        )
+        for name, env_name in websocket_env:
+            value = os.getenv(env_name)
+            if value:
+                urls.append((name, value))
+        return urls
 
     def _url_from_env(self) -> str | None:
-        explicit = os.getenv("ALCHEMY_RPC_URL")
+        network_specific = os.getenv(f"SMARTRISK_{self.network.key.upper()}_RPC_URL")
+        if network_specific:
+            return network_specific
+        explicit = os.getenv("ALCHEMY_RPC_URL") if self.network.key == "ethereum" else None
         if explicit:
             return explicit
         if self.api_key:
@@ -39,7 +90,9 @@ class AlchemyRpcClient:
         return None
 
     def request(self, method: str, params: list[Any] | None = None) -> Any:
-        if not self.rpc_url:
+        if self._router is not None:
+            return self._router.request(method, params)
+        if not self._rpc_url:
             raise AlchemyRpcError("ALCHEMY_API_KEY or ALCHEMY_RPC_URL is required")
         body = json.dumps({"jsonrpc": "2.0", "id": str(uuid.uuid4()), "method": method, "params": params or []}).encode()
         request = urllib.request.Request(
@@ -65,7 +118,9 @@ class AlchemyRpcClient:
         raise AlchemyRpcError(f"{method} failed after retries: {last_error}")
 
     def capability_probe(self) -> dict[str, Any]:
-        capabilities: dict[str, Any] = {"provider": "alchemy", "rpc_url_configured": bool(self.rpc_url)}
+        if self._router is not None:
+            return self._router.capability_probe()
+        capabilities: dict[str, Any] = {"provider": "alchemy", "rpc_url_configured": bool(self.rpc_url), "expected_chain_id": self.expected_chain_id}
         if not self.rpc_url:
             capabilities["status"] = "unavailable"
             return capabilities
@@ -79,6 +134,12 @@ class AlchemyRpcClient:
             try:
                 result = self.request(method, params)
                 capabilities[name] = {"available": result is not None}
+                if name == "chain_id" and result is not None:
+                    actual = int(str(result), 16) if isinstance(result, str) and str(result).lower().startswith("0x") else int(result)
+                    capabilities[name]["actual_chain_id"] = str(actual)
+                    if actual != int(self.expected_chain_id):
+                        capabilities[name]["available"] = False
+                        capabilities[name]["error"] = f"provider chain {actual} does not match expected chain {self.expected_chain_id}"
                 if name == "finalized_block":
                     capabilities[name]["block_number"] = result.get("number") if result else None
             except AlchemyRpcError as exc:

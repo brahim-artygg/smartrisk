@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SmartRisk — Account</title>
+  <meta name="description" content="SmartRisk account access.">
+  <link rel="stylesheet" href="/assets/auth.css">
+</head>
+<body>
+  <main class="auth-shell">
+    <section class="auth-card">
+      <a class="brand" href="/">SmartRisk</a>
+      <div id="auth-view" data-mode="login">
+        <h1 id="auth-title">Welcome back</h1>
+        <p id="auth-copy" class="auth-copy">Sign in to manage your SmartRisk account.</p>
+
+        <div id="auth-alert" class="alert" role="status" aria-live="polite" hidden></div>
+
+        <form id="login-form" class="auth-form" novalidate>
+          <label for="login-email">Email</label>
+          <input id="login-email" name="email" type="email" autocomplete="email" required>
+          <label for="login-password">Password</label>
+          <input id="login-password" name="password" type="password" autocomplete="current-password" required>
+          <button type="submit">Login</button>
+        </form>
+
+        <form id="register-form" class="auth-form" novalidate hidden>
+          <label for="register-email">Email</label>
+          <input id="register-email" name="email" type="email" autocomplete="email" required>
+          <label for="register-password">Password</label>
+          <input id="register-password" name="password" type="password" autocomplete="new-password" required>
+          <label for="register-confirm">Confirm password</label>
+          <input id="register-confirm" name="confirm" type="password" autocomplete="new-password" required>
+          <button type="submit">Create account</button>
+        </form>
+
+        <form id="resend-form" class="auth-form" novalidate hidden>
+          <label for="resend-email">Email</label>
+          <input id="resend-email" name="email" type="email" autocomplete="email" required>
+          <button type="submit">Resend verification</button>
+        </form>
+
+        <form id="forgot-form" class="auth-form" novalidate hidden>
+          <label for="forgot-email">Email</label>
+          <input id="forgot-email" name="email" type="email" autocomplete="email" required>
+          <button type="submit">Send reset link</button>
+        </form>
+
+        <form id="reset-form" class="auth-form" novalidate hidden>
+          <label for="reset-password">New password</label>
+          <input id="reset-password" name="password" type="password" autocomplete="new-password" required>
+          <label for="reset-confirm">Confirm password</label>
+          <input id="reset-confirm" name="confirm" type="password" autocomplete="new-password" required>
+          <button type="submit">Reset password</button>
+        </form>
+
+        <div id="auth-links" class="auth-links">
+          <a href="/auth?mode=register">Create account</a>
+          <a href="/auth?mode=forgot">Forgot password?</a>
+        </div>
+
+        <div id="verified-view" class="success-view" hidden>
+          <h2>Email verified</h2>
+          <p>Your account is ready. You can sign in now.</p>
+          <a class="secondary-button" href="/auth?mode=login">Go to login</a>
+        </div>
+
+        <div id="reset-success" class="success-view" hidden>
+          <h2>Password updated</h2>
+          <p>Your password has been changed. Sign in with your new password.</p>
+          <a class="secondary-button" href="/auth?mode=login">Go to login</a>
+        </div>
+
+        <div id="account-view" class="success-view" hidden>
+          <h2>Your account</h2>
+          <p id="account-email">—</p>
+          <div class="account-actions">
+            <a class="secondary-button" href="/developer">Developer API</a>
+            <button id="logout-button" class="secondary-button" type="button">Log out</button>
+          </div>
+        </div>
+
+        <p class="scan-note"><a href="/">Scan a contract without signing in →</a></p>
+      </div>
+    </section>
+  </main>
+  <footer class="site-footer" aria-label="SmartRisk footer">
+  <div class="footer-grid">
+    <div class="footer-group">
+      <h2>Product</h2>
+      <a href="/how-it-works">How it works</a>
+      <a href="/methodology">Methodology</a>
+      <a href="/supported-networks">Supported networks</a>
+    </div>
+    <div class="footer-group">
+      <h2>Learn</h2>
+      <a href="/risk-library">Risk library</a>
+      <a href="/faq">FAQ</a>
+      <a href="/disclaimer">Disclaimer</a>
+    </div>
+    <div class="footer-group">
+      <h2>Trust</h2>
+      <a href="/about">About SmartRisk</a>
+      <a href="/security">Security</a>
+      <a href="/privacy">Privacy policy</a>
+      <a href="/terms">Terms of service</a>
+      <a href="/contact">Contact us</a>
+    </div>
+  </div>
+</footer>
+  <script src="/assets/auth.js" defer></script>
+</body>
+</html>

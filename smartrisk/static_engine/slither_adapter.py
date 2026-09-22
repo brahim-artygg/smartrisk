@@ -8,6 +8,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from ..core.sandbox import CommandSandbox, SandboxResult, SandboxUnavailable
 from .models import Evidence, Finding, SourceLocation
 
 
@@ -22,9 +23,10 @@ class SlitherAdapter:
     explicit and avoids coupling the core package to AGPL code at import time.
     """
 
-    def __init__(self, executable: str = "slither", timeout_seconds: int = 120):
+    def __init__(self, executable: str = "slither", timeout_seconds: int = 120, sandbox: CommandSandbox | None = None):
         self.executable = executable
         self.timeout_seconds = timeout_seconds
+        self.sandbox = sandbox or CommandSandbox()
 
     def available(self) -> bool:
         return shutil.which(self.executable) is not None
@@ -38,21 +40,22 @@ class SlitherAdapter:
         with tempfile.TemporaryDirectory(prefix="smartrisk-slither-") as tmp:
             output = Path(tmp) / "slither.json"
             command = [self.executable, str(project), "--json", str(output)]
-            try:
-                completed = subprocess.run(
-                    command,
-                    capture_output=True,
-                    text=True,
-                    timeout=self.timeout_seconds,
-                    check=False,
-                    env=worker_env,
-                )
-            except subprocess.TimeoutExpired as exc:
-                raise SlitherUnavailable("Slither timed out") from exc
-            diagnostics = [line for line in (completed.stderr or "").splitlines() if line.strip()]
+            result = self.sandbox.run(
+                command,
+                cwd=project,
+                env=worker_env,
+                readonly_paths=(project,),
+                writable_paths=(tmp,),
+                timeout_seconds=self.timeout_seconds,
+            )
+            diagnostics = [line for line in result.stderr.splitlines() if line.strip()] + list(result.diagnostics)
+            if result.status == "timeout":
+                raise SlitherUnavailable("Slither timed out")
+            if result.status in {"resource_exceeded", "failed"} and not output.exists():
+                raise SlitherUnavailable(f"Slither sandbox failed (exit={result.returncode})")
             if not output.exists():
                 raise SlitherUnavailable(
-                    f"Slither produced no JSON output (exit={completed.returncode})"
+                    f"Slither produced no JSON output (exit={result.returncode})"
                 )
             payload = json.loads(output.read_text(encoding="utf-8"))
             return self._normalize(payload, project, diagnostics)

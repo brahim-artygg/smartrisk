@@ -15,6 +15,7 @@ class UnifiedRequest:
     block_number: int | None = None
     compiler_version: str | None = None
     window_blocks: int = 10_000
+    deployer_address: str | None = None
 
 
 @dataclass
@@ -47,10 +48,17 @@ class UnifiedRiskReport:
     risk_band: str
     confidence: float
     coverage: float
+    verdict: str = "UNVERIFIED"
+    verdict_label: str = "UNVERIFIED"
+    primary_detection: dict[str, Any] = field(default_factory=dict)
     engine_summaries: list[EngineSummary] = field(default_factory=list)
     findings: list[dict[str, Any]] = field(default_factory=list)
     decisions: list[dict[str, Any]] = field(default_factory=list)
+    hard_verdicts: list[dict[str, Any]] = field(default_factory=list)
+    risk_dimensions: dict[str, dict[str, Any]] = field(default_factory=dict)
     evidence: list[dict[str, Any]] = field(default_factory=list)
+    correlations: list[dict[str, Any]] = field(default_factory=list)
+    evidence_graph: dict[str, Any] = field(default_factory=dict)
     unknowns: list[str] = field(default_factory=list)
     assumptions: list[str] = field(default_factory=list)
     versions: dict[str, str] = field(default_factory=dict)
@@ -60,6 +68,11 @@ class UnifiedRiskReport:
         return {
             "run_id": self.run_id,
             "status": self.status,
+            "verdict": {
+                "code": self.verdict,
+                "label": self.verdict_label,
+                "primary_detection": self.primary_detection,
+            },
             "risk": {
                 "score": self.risk_score,
                 "band": self.risk_band,
@@ -69,7 +82,11 @@ class UnifiedRiskReport:
             "engines": [engine.to_dict() for engine in self.engine_summaries],
             "findings": self.findings,
             "decisions": self.decisions,
+            "hard_verdicts": self.hard_verdicts,
+            "risk_dimensions": self.risk_dimensions,
             "evidence": self.evidence,
+            "correlations": self.correlations,
+            "evidence_graph": self.evidence_graph,
             "unknowns": self.unknowns,
             "assumptions": self.assumptions,
             "versions": self.versions,

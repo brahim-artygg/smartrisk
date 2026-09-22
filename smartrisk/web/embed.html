@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SmartRisk Widget</title>
+  <meta name="description" content="SmartRisk embedded smart-contract risk scanner.">
+  <link rel="stylesheet" href="/assets/embed.css">
+</head>
+<body>
+  <main class="widget" id="widget" data-state="idle">
+    <header class="widget-head">
+      <div>
+        <div class="brand">SmartRisk</div>
+        <div class="tagline">Contract risk scanning</div>
+      </div>
+      <span class="live-pill">AUTO NETWORK</span>
+    </header>
+
+    <section class="scan-panel" id="scan-panel">
+      <label class="field-label" for="contract">Contract address</label>
+      <div class="scan-row">
+        <input id="contract" name="contract" autocomplete="off" spellcheck="false" inputmode="text" placeholder="0x..." aria-label="Contract address">
+        <button id="scan" type="button">Scan</button>
+      </div>
+      <div id="message" class="message" role="status" aria-live="polite"></div>
+      <div class="helper">Paste one EVM contract address. SmartRisk detects the supported network automatically.</div>
+    </section>
+
+    <section id="loading" class="loading" hidden>
+      <div class="spinner"></div>
+      <strong id="loading-title">Scanning contract…</strong>
+      <span id="loading-detail">Running SmartRisk analysis.</span>
+    </section>
+
+    <section id="result" class="result" hidden aria-live="polite">
+      <div class="result-top">
+        <div>
+          <div class="result-label" id="result-verdict">UNVERIFIED</div>
+          <div class="result-network" id="result-network">Network unknown</div>
+        </div>
+        <div class="score" id="result-score">—</div>
+      </div>
+      <div class="address" id="result-address">—</div>
+      <div class="primary" id="result-primary" hidden></div>
+      <div class="signals" id="result-signals"></div>
+      <div class="result-meta" id="result-meta"></div>
+      <div class="result-actions">
+        <a id="full-report" href="#" target="_blank" rel="noopener noreferrer">View Full Report</a>
+        <button id="new-scan" type="button">Scan Another</button>
+      </div>
+    </section>
+
+    <footer class="widget-foot">Powered by SmartRisk</footer>
+  </main>
+  <script>window.SMART_RISK_EMBED=__SMART_RISK_EMBED_CONFIG__;</script>
+  <script src="/assets/embed-frame.js"></script>
+</body>
+</html>

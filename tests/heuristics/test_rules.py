@@ -17,8 +17,8 @@ def test_low_liquidity_and_no_sell_activity_contribute_score():
         feature("market.pair_age_hours", 12, "hours"),
         feature("chain.token_has_code", True, "boolean"),
     ])
-    assert score.score == 50.0
-    assert score.band == "high"
+    assert score.score < 15.0
+    assert score.band == "low"
     assert {decision.rule_id for decision in score.decisions if decision.outcome == "triggered"} == {
         "market.low_liquidity", "market.sell_activity_absent"
     }
@@ -41,3 +41,12 @@ def test_missing_market_data_is_unknown_not_no_pair():
     no_pair = next(decision for decision in score.decisions if decision.rule_id == "market.no_pair")
     assert no_pair.outcome == "unknown"
     assert score.band == "unknown"
+
+
+def test_holder_concentration_requires_a_minimum_observed_holder_sample():
+    score = RuleEngine().score([
+        feature("holders.holder_count", 2, "count"),
+        feature("holders.top10_concentration", 0.99, "ratio"),
+        feature("holders.top20_concentration", 0.99, "ratio"),
+    ])
+    assert all(decision.outcome == "not_triggered" for decision in score.decisions if decision.rule_id.startswith("holders."))

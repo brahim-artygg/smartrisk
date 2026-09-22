@@ -1,0 +1,116 @@
+openapi: 3.1.0
+info:
+  title: SmartRisk Developer API
+  version: 0.9.0
+  description: Asynchronous contract-risk analysis API built on the SmartRisk engine. Batch size is plan-specific (Developer up to 500 items; Pro up to 2,000). Results are JSON-first and derived directly from the UnifiedRiskReport.
+servers:
+  - url: https://your-domain.example
+security:
+  - ApiKeyAuth: []
+paths:
+  /v1/developer/api-keys/{key_id}/rotate:
+    post:
+      summary: Rotate a developer API key
+      parameters:
+        - {in: path, name: key_id, required: true, schema: {type: string}}
+      responses:
+        '201': {description: Replacement API key}
+  /v1/api/batches:
+    post:
+      summary: Create an asynchronous contract scan batch
+      parameters:
+        - in: header
+          name: X-API-Key
+          required: true
+          schema: {type: string}
+        - in: header
+          name: Idempotency-Key
+          required: false
+          schema: {type: string, maxLength: 160}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [items]
+              properties:
+                items:
+                  type: array
+                  maxItems: 2000
+                  items:
+                    type: object
+                    required: [address]
+                    properties:
+                      address: {type: string}
+                      chain_id: {type: string}
+                      id: {type: string}
+      responses:
+        '202': {description: Batch accepted}
+        '401': {description: Invalid API key}
+        '413': {description: Batch too large}
+        '409': {description: Idempotency key conflict}
+        '429': {description: Rate limit exceeded}
+  /v1/api/batches/{batch_id}:
+    get:
+      summary: Get batch status
+      parameters:
+        - in: path
+          name: batch_id
+          required: true
+          schema: {type: string}
+      responses:
+        '200': {description: Batch status}
+  /v1/api/batches/{batch_id}/results:
+    get:
+      summary: Get paginated batch results
+      parameters:
+        - in: path
+          name: batch_id
+          required: true
+          schema: {type: string}
+        - {in: query, name: offset, schema: {type: integer, minimum: 0}}
+        - {in: query, name: limit, description: Summary responses allow up to the plan batch size; full responses are capped at 100 items per page, schema: {type: integer, minimum: 1, maximum: 2000}}
+        - {in: query, name: include, schema: {type: string, enum: [summary, full]}}
+      responses:
+        '200':
+          description: Paginated programmatic SmartRisk results derived from UnifiedRiskReport
+          content:
+            application/json:
+              example:
+                batch: {batch_id: bat_01, status: complete, total: 1, queued: 0, running: 0, completed: 1, failed: 0}
+                data:
+                  - schema_version: "1.0"
+                    status: complete
+                    address: "0x..."
+                    chain_id: "8453"
+                    risk: {score: 72, band: high, confidence: 0.91, coverage: 1.0, score_direction: higher_is_more_risky}
+                    verdict: {code: HIGH_RISK, label: HIGH RISK}
+                    detections: []
+                    risk_dimensions: {}
+                    engines: []
+                    unknowns: []
+                    versions: {release: "0.9.0"}
+  /v1/api/batches/{batch_id}/export:
+    get:
+      summary: Export batch results
+      parameters:
+        - {in: path, name: batch_id, required: true, schema: {type: string}}
+        - {in: query, name: format, schema: {type: string, enum: [json, jsonl, csv]}}
+        - {in: query, name: include, schema: {type: string, enum: [summary, full]}}
+      responses:
+        '200': {description: Export file}
+  /v1/api/scans/{scan_id}:
+    get:
+      summary: Get a single scan result
+      parameters:
+        - {in: path, name: scan_id, required: true, schema: {type: string}}
+        - {in: query, name: include, schema: {type: string, enum: [summary, full]}}
+      responses:
+        '200': {description: Scan result}
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key

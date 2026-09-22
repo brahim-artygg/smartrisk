@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SmartRisk — Token Risk Scanner</title>
+  <meta name="description" content="Check an EVM token contract with SmartRisk.">
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <main class="page-shell">
+    <section class="scanner" aria-label="SmartRisk token scanner">
+      <div class="top-nav"><a id="account-link" class="account-link" href="/auth?mode=login">Login</a></div>
+      <a class="brand" href="/" aria-label="SmartRisk home">SmartRisk</a>
+      <h1>Scan a token</h1>
+      <p class="subhead">Check the contract before you buy.</p>
+
+      <form id="scan-form" class="scan-form" novalidate>
+        <div class="scan-box" id="scan-box">
+          <label class="sr-only" for="token">Contract address</label>
+          <input
+            id="token"
+            name="token"
+            type="text"
+            inputmode="text"
+            autocomplete="off"
+            autocapitalize="off"
+            spellcheck="false"
+            placeholder="0x… contract address"
+            aria-describedby="form-message"
+            required
+          >
+          <button id="scan-button" type="submit">
+            <span class="button-label">Scan</span>
+            <span class="spinner" aria-hidden="true"></span>
+          </button>
+        </div>
+        <div id="form-message" class="form-message" role="status" aria-live="polite"></div>
+      </form>
+
+      <div id="scan-status" class="scan-status" hidden>
+        <span class="status-dot"></span>
+        <span id="status-text">Submitting scan…</span>
+      </div>
+
+    </section>
+  </main>
+  <footer class="site-footer" aria-label="SmartRisk footer">
+  <div class="footer-grid">
+    <div class="footer-group">
+      <h2>Product</h2>
+      <a href="/how-it-works">How it works</a>
+      <a href="/methodology">Methodology</a>
+      <a href="/supported-networks">Supported networks</a>
+    </div>
+    <div class="footer-group">
+      <h2>Learn</h2>
+      <a href="/risk-library">Risk library</a>
+      <a href="/faq">FAQ</a>
+      <a href="/disclaimer">Disclaimer</a>
+    </div>
+    <div class="footer-group">
+      <h2>Trust</h2>
+      <a href="/about">About SmartRisk</a>
+      <a href="/security">Security</a>
+      <a href="/privacy">Privacy policy</a>
+      <a href="/terms">Terms of service</a>
+      <a href="/contact">Contact us</a>
+    </div>
+  </div>
+</footer>
+  <script src="/assets/app.js" defer></script>
+</body>
+</html>

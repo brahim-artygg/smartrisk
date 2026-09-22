@@ -13,7 +13,7 @@ from .models import StaticRun
 from .slither_adapter import SlitherAdapter, SlitherUnavailable
 
 
-ENGINE_VERSION = "0.2.0"
+ENGINE_VERSION = "0.3.1"
 
 
 class StaticEngine:
@@ -51,7 +51,11 @@ class StaticEngine:
         env = self.compiler_manager.environment(selection)
         try:
             findings, evidence, diagnostics = self.slither.run(root, env=env)
-            custom_findings, custom_evidence, custom_diagnostics = self.custom_detectors.run(root, env=env)
+            sandboxed = getattr(self.custom_detectors, "run_sandboxed", None)
+            if callable(sandboxed):
+                custom_findings, custom_evidence, custom_diagnostics = sandboxed(root, env=env)
+            else:
+                custom_findings, custom_evidence, custom_diagnostics = self.custom_detectors.run(root, env=env)
         except SlitherUnavailable as exc:
             return StaticRun(
                 run_id, "unknown", "static", ENGINE_VERSION, input_hash, compiler,

@@ -4,18 +4,31 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "smartrisk"
-version = "0.2.0"
+version = "0.9.0"
 description = "EVM risk scanning platform"
 requires-python = ">=3.11"
+
+[project.optional-dependencies]
+realtime = ["websockets>=16,<18"]
+distributed = ["redis>=6,<7"]
+deep = ["z3-solver>=4.15"]
+production = ["websockets>=16,<18", "redis>=6,<7", "z3-solver>=4.15"]
 
 [project.scripts]
 smartrisk-static = "smartrisk.static_engine.cli:main"
 smartrisk-fork = "smartrisk.state_fork.cli:main"
 smartrisk-score = "smartrisk.heuristics.cli:main"
 smartrisk = "smartrisk.unified.cli:main"
+smartrisk-deep = "smartrisk.deep_cli:main"
+smartrisk-calibrate = "smartrisk.calibrate_cli:main"
+smartrisk-realtime = "smartrisk.realtime_cli:main"
+smartrisk-worker = "smartrisk.service.worker_cli:main"
 
 [tool.setuptools.packages.find]
 include = ["smartrisk*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+
+[tool.setuptools.package-data]
+smartrisk = ["web/*.html", "web/*.css", "web/*.js"]

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
+import sys
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+from ..core.sandbox import CommandSandbox, SandboxUnavailable
 from .models import Evidence, Finding, SourceLocation
 
 
@@ -46,6 +49,12 @@ RULES = {
         "severity": "high",
         "remediation": "Restrict fee changes, enforce a maximum, and test buy/sell accounting under the limit.",
     },
+    "token.unprotected-trading-control": {
+        "title": "Unprotected trading-control state write",
+        "description": "A public or external function changes trading limits or transfer-control state without a detected authorization path.",
+        "severity": "high",
+        "remediation": "Protect trading controls with explicit authorization and validate max-transaction, max-wallet and launch-state invariants.",
+    },
     "token.unbounded-fee": {
         "title": "Unprotected and unbounded fee storage write",
         "description": "A public or external function writes fee/tax storage without authorization and without a detected upper-bound check.",
@@ -62,12 +71,13 @@ STATE_GROUPS = {
     "blacklist": ("blacklist", "whitelist", "denylist", "allowlist"),
     "pause": ("pause", "paused"),
     "fee": ("fee", "tax", "basispoint", "bps"),
+    "trading": ("trading", "tradingenabled", "maxtx", "maxwallet", "cooldown", "transferdelay", "selllimit", "buylimit", "txlimit", "walletlimit"),
 }
 AUTH_HINTS = (
     "owner", "onlyowner", "admin", "role", "auth", "operator", "governor", "guardian",
     "checkrole", "hasrole", "_authorize", "_checkowner",
 )
-SUPPLY_HINTS = ("totalsupply", "supply", "balance", "balances")
+SUPPLY_HINTS = ("totalsupply", "supply", "balance", "balances", "rowned", "towned", "ttotal", "rtotal", "reflection", "ramount", "tamount")
 
 
 class CustomDetectorRunner:
@@ -83,6 +93,36 @@ class CustomDetectorRunner:
 
     def available(self) -> bool:
         return importlib.util.find_spec("slither") is not None
+
+    def run_sandboxed(
+        self, project: Path, env: dict[str, str] | None = None, sandbox: CommandSandbox | None = None
+    ) -> tuple[list[Finding], list[Evidence], list[str]]:
+        """Run the Slither-backed semantic detectors in an isolated worker process."""
+        worker = sandbox or CommandSandbox()
+        child_env = dict(env or {})
+        child_env.setdefault("PYTHONPATH", os.pathsep.join(path for path in sys.path if path))
+        result = worker.run(
+            [sys.executable, "-m", "smartrisk.static_engine.custom_worker", str(project)],
+            cwd=project,
+            env=child_env,
+            readonly_paths=(project,),
+            timeout_seconds=self.timeout_seconds,
+        )
+        if result.status == "timeout":
+            raise RuntimeError("custom detector worker timed out")
+        if result.status in {"failed", "resource_exceeded"} and not result.stdout:
+            raise RuntimeError(f"custom detector worker failed: {result.stderr[-500:]}")
+        try:
+            payload = json.loads(result.stdout)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("custom detector worker returned invalid JSON") from exc
+        findings: list[Finding] = []
+        for item in payload.get("findings", []):
+            location = item.get("source_location")
+            findings.append(Finding(**{**item, "source_location": SourceLocation(**location) if location else None}))
+        evidence = [Evidence(**item) for item in payload.get("evidence", [])]
+        diagnostics = list(payload.get("diagnostics", [])) + list(result.diagnostics)
+        return findings, evidence, diagnostics
 
     def run(
         self, project: Path, env: dict[str, str] | None = None
@@ -105,7 +145,7 @@ class CustomDetectorRunner:
                 writes = self._storage_writes(function)
                 if not writes:
                     continue
-                group = self._group_for_writes(writes)
+                group = self._group_for_function(function, writes)
                 if group is None:
                     continue
                 authorization = self._authorization_evidence(function)
@@ -155,16 +195,28 @@ class CustomDetectorRunner:
                 ))
         return findings, evidence, []
 
-    @staticmethod
-    def _storage_writes(function: Any) -> list[str]:
+    @classmethod
+    def _storage_writes(cls, function: Any, _visited: set[int] | None = None) -> list[str]:
+        visited = _visited or set()
+        marker = id(function)
+        if marker in visited:
+            return []
+        visited.add(marker)
         variables = list(getattr(function, "state_variables_written", []) or [])
         if not variables:
             variables = list(getattr(function, "variables_written", []) or [])
-        names = []
+        names: list[str] = []
         for variable in variables:
             name = getattr(variable, "name", None) or str(variable)
             if name not in names:
                 names.append(name)
+        # Slither does not expose identical transitive write lists across all
+        # versions. Walk internal calls as a deterministic fallback so a public
+        # wrapper cannot hide a sensitive write in an internal setter.
+        for callee in getattr(function, "internal_calls", []) or []:
+            for name in cls._storage_writes(callee, visited):
+                if name not in names:
+                    names.append(name)
         return names
 
     @classmethod
@@ -184,6 +236,34 @@ class CustomDetectorRunner:
             return "mint_burn"
         return None
 
+    @classmethod
+    def _group_for_function(cls, function: Any, writes: list[str]) -> str | None:
+        group = cls._group_for_writes(writes)
+        if group is not None:
+            return group
+        fn_text = cls._normalized_name(getattr(function, "name", ""))
+        ir_text = " ".join(cls._ir_text(function)).lower()
+        if any(term in fn_text for term in ("mint", "burn")) and any(
+            cls._normalized_name(name) in {"balance", "balances", "totalsupply", "supply"}
+            or any(hint in cls._normalized_name(name) for hint in SUPPLY_HINTS)
+            for name in writes
+        ):
+            return "mint_burn"
+        if any(term in fn_text for term in ("setbalance", "setbalances", "setsupply", "setsupplies", "setaccountbalance")) and any(
+            any(hint in cls._normalized_name(name) for hint in ("balance", "balances", "supply", "totalsupply", "rowned", "towned"))
+            for name in writes
+        ):
+            return "mint_burn"
+        if any(term in fn_text for term in ("settrading", "enabletrading", "disabletrading", "setmax", "setcooldown", "setlimit", "setantibot", "setbot", "setexempt", "setfeeexempt")):
+            return "trading"
+        if ("fee" in fn_text or "tax" in fn_text) and ("set" in fn_text or "update" in fn_text or "change" in fn_text):
+            return "fee"
+        if any(any(term in cls._normalized_name(name) for term in STATE_GROUPS["trading"]) for name in writes):
+            return "trading"
+        if any(term in ir_text for term in ("tradingenabled", "maxtx", "maxwallet", "cooldown", "transferdelay", "selllimit", "buylimit")):
+            return "trading"
+        return None
+
     @staticmethod
     def _rule_id(group: str, bounded_fee: bool) -> str:
         if group == "upgrade":
@@ -196,23 +276,49 @@ class CustomDetectorRunner:
             return "token.unprotected-pause"
         if group == "fee":
             return "token.unprotected-fee" if bounded_fee else "token.unbounded-fee"
+        if group == "trading":
+            return "token.unprotected-trading-control"
         return "access.unprotected-sensitive-function"
 
     @classmethod
-    def _authorization_evidence(cls, function: Any) -> dict[str, Any]:
-        modifiers = [str(getattr(modifier, "name", "")).lower() for modifier in function.modifiers]
-        internal = [str(getattr(call, "name", "")).lower() for call in getattr(function, "internal_calls", [])]
-        ir_text = " ".join(cls._ir_text(function)).lower()
+    def _authorization_evidence(cls, function: Any, _visited: set[int] | None = None) -> dict[str, Any]:
+        visited = _visited or set()
+        marker = id(function)
+        if marker in visited:
+            return {
+                "detected": False, "strength": "none", "modifier_hits": [],
+                "internal_call_hits": [], "inline_check_hits": [],
+                "recursive_authorized_path": [], "authorization_observed": False,
+            }
+        visited.add(marker)
+        modifiers = [str(getattr(modifier, "name", "")).lower() for modifier in getattr(function, "modifiers", []) or []]
+        calls = list(getattr(function, "internal_calls", []) or [])
+        internal = [str(getattr(call, "name", "")).lower() for call in calls]
+        ir_lines = cls._ir_text(function)
         modifier_hits = [value for value in modifiers if any(hint in value for hint in AUTH_HINTS)]
         internal_hits = [value for value in internal if any(hint in value for hint in AUTH_HINTS)]
-        inline_hits = []
-        if "msg.sender" in ir_text and any(token in ir_text for token in ("require", "assert", "revert", "owner", "admin", "role")):
-            inline_hits.append("sender-check")
+        inline_hits: list[str] = []
+        for line in ir_lines:
+            text = str(line).lower()
+            if "msg.sender" in text and any(hint in text for hint in AUTH_HINTS):
+                if any(token in text for token in ("require", "assert", "revert", "==", "!=")):
+                    inline_hits.append("sender-authorization-check")
+                    break
+        recursive_paths: list[str] = []
+        for callee in calls:
+            child = cls._authorization_evidence(callee, visited)
+            if child.get("detected"):
+                recursive_paths.append(str(getattr(callee, "name", "<internal>")))
+                recursive_paths.extend(str(item) for item in child.get("recursive_authorized_path", []))
+        strength = "strong" if modifier_hits or internal_hits or recursive_paths else "medium" if inline_hits else "none"
         return {
-            "detected": bool(modifier_hits or internal_hits or inline_hits),
+            "detected": strength != "none",
+            "strength": strength,
             "modifier_hits": modifier_hits,
             "internal_call_hits": internal_hits,
             "inline_check_hits": inline_hits,
+            "recursive_authorized_path": sorted(set(recursive_paths)),
+            "authorization_observed": strength != "none",
         }
 
     @staticmethod

@@ -32,8 +32,13 @@ def test_unified_engine_aggregates_three_complete_engines():
     assert result.status == "complete"
     assert result.risk_score is not None
     assert result.risk_band == "low"
+    assert result.verdict == "LOW_RISK"
+    assert result.verdict_label == "LOW RISK"
+    assert result.primary_detection["type"] == "risk_score"
     assert {engine.name for engine in result.engine_summaries} == {"static_ast", "state_fork", "heuristics"}
-    assert result.versions["unified"] == "unified-v0.1"
+    assert result.versions["unified"] == "unified-v0.9.0"
+    assert "contract_security" in result.risk_dimensions
+    assert result.versions["release"] == "0.9.0"
 
 
 def test_unified_engine_unknown_when_no_engine_has_input():
@@ -42,3 +47,52 @@ def test_unified_engine_unknown_when_no_engine_has_input():
     assert result.risk_band == "unknown"
     assert result.risk_score is None
     assert result.unknowns
+
+
+class FakeSource:
+    def anchor(self, block_tag):
+        return ChainAnchor("0x1", 77, "0xshared", "safe")
+
+class FakeHeuristicsWithAnchor(FakeHeuristics):
+    alchemy = FakeSource()
+
+def test_unified_engine_reuses_shared_anchor_block_number_for_fork():
+    class CapturingFork(FakeFork):
+        seen = None
+        def analyze(self, scenarios, run_id=None, block_tag="safe", block_number=None):
+            self.seen = block_number
+            return super().analyze(scenarios, run_id, block_tag, block_number)
+    fork = CapturingFork()
+    UnifiedRiskEngine(FakeStatic(), fork, FakeHeuristicsWithAnchor()).analyze(
+        UnifiedRequest(project="contract.sol", chain_id="0x1", token_address="0xtoken", scenarios=["scenario"]),
+        run_id="shared-anchor-test",
+    )
+    assert fork.seen == 77
+
+
+from smartrisk.state_fork.models import HoneypotResult
+
+class FakeHoneypotFork(FakeFork):
+    def analyze_honeypot(self, sequence, run_id=None, block_tag="safe", block_number=None):
+        anchor = BlockAnchor("0x1", 10, "0xblock", "0xparent", 1, "safe")
+        return ForkRun(run_id, "complete", anchor, honeypot_results=[HoneypotResult(
+            sequence_id="hp1", classification="sell_blocked", steps=[], anchor=anchor,
+            evidence=["sell_tx"],
+        )])
+
+def test_unified_engine_emits_honeypot_verdict():
+    class HpRequest(UnifiedRequest):
+        pass
+    result = UnifiedRiskEngine(FakeStatic(), FakeHoneypotFork(), FakeHeuristics()).analyze(
+        UnifiedRequest(project="contract.sol", chain_id="0x1", token_address="0xtoken", honeypot=object()),
+        run_id="hp-test",
+    )
+    assert result.verdict == "HONEYPOT_DETECTED"
+    assert result.verdict_label == "HONEYPOT DETECTED"
+    assert result.primary_detection["type"] == "honeypot"
+    assert result.to_dict()["verdict"]["code"] == "HONEYPOT_DETECTED"
+
+def test_unified_engine_emits_unverified_when_no_inputs():
+    result = UnifiedRiskEngine().analyze(UnifiedRequest(), run_id="unverified")
+    assert result.verdict == "UNVERIFIED"
+    assert result.verdict_label == "UNVERIFIED"

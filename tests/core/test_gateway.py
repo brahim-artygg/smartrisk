@@ -50,3 +50,37 @@ def test_gateway_exposes_state_transaction_and_metadata_methods():
         "eth_call", "eth_getStorageAt", "eth_getTransactionByHash",
         "eth_getTransactionReceipt", "alchemy_getTokenMetadata", "alchemy_getAssetTransfers",
     }
+
+
+class PagedRpc(FakeRpc):
+    def __init__(self):
+        super().__init__()
+        self.page = 0
+    def request(self, method, params=None):
+        self.calls.append((method, params))
+        if method == "alchemy_getAssetTransfers":
+            self.page += 1
+            return {"transfers": [{"hash": f"0x{self.page}"}], "pageKey": "next" if self.page == 1 else None}
+        return {"ok": True}
+
+
+def test_gateway_asset_transfer_pagination_and_cache_metrics():
+    gateway = AlchemyGateway(PagedRpc(), cache_ttl_seconds=60, max_cache_entries=2)
+    items, evidence, diagnostics = gateway.get_asset_transfers_all({"fromBlock": "0x1", "toBlock": "0x2"})
+    assert len(items) == 2
+    assert len(evidence) == 2
+    assert diagnostics == []
+    metrics = gateway.cache_metrics()
+    assert metrics["misses"] == 2
+    gateway.call("eth_chainId", [])
+    gateway.call("eth_chainId", [])
+    assert gateway.cache_metrics()["hits"] == 1
+
+
+def test_gateway_exposes_block_and_trace_helpers():
+    gateway = AlchemyGateway(FakeRpc())
+    gateway.get_block_by_number(100)
+    gateway.get_transaction_count("0xowner")
+    gateway.get_trace("0xtx")
+    methods = {item.method for item in gateway.evidence}
+    assert {"eth_getBlockByNumber", "eth_getTransactionCount", "debug_traceTransaction"}.issubset(methods)
