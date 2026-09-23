@@ -100,6 +100,8 @@ class ScanHandler(BaseHTTPRequestHandler):
             "auth.html": ("text/html; charset=utf-8", "auth.html"),
             "contact.html": ("text/html; charset=utf-8", "contact.html"),
             "privacy.html": ("text/html; charset=utf-8", "privacy.html"),
+            "fulfillment-policy.html": ("text/html; charset=utf-8", "fulfillment-policy.html"),
+            "cookies-policy.html": ("text/html; charset=utf-8", "cookies-policy.html"),
             "about.html": ("text/html; charset=utf-8", "about.html"),
             "security.html": ("text/html; charset=utf-8", "security.html"),
             "terms.html": ("text/html; charset=utf-8", "terms.html"),
@@ -116,6 +118,7 @@ class ScanHandler(BaseHTTPRequestHandler):
             "assets/auth.css": ("text/css; charset=utf-8", "auth.css"),
             "assets/auth.js": ("application/javascript; charset=utf-8", "auth.js"),
             "assets/info.css": ("text/css; charset=utf-8", "info.css"),
+            "assets/site-footer.css": ("text/css; charset=utf-8", "site-footer.css"),
             "developer.html": ("text/html; charset=utf-8", "developer.html"),
             "assets/developer.css": ("text/css; charset=utf-8", "developer.css"),
             "assets/developer.js": ("application/javascript; charset=utf-8", "developer.js"),
@@ -685,6 +688,12 @@ class ScanHandler(BaseHTTPRequestHandler):
         if path == "/privacy":
             self._asset("privacy.html")
             return
+        if path == "/fulfillment-policy":
+            self._asset("fulfillment-policy.html")
+            return
+        if path == "/cookies-policy":
+            self._asset("cookies-policy.html")
+            return
         if path == "/about":
             self._asset("about.html")
             return
@@ -735,6 +744,9 @@ class ScanHandler(BaseHTTPRequestHandler):
             return
         if path == "/assets/info.css":
             self._asset("assets/info.css")
+            return
+        if path == "/assets/site-footer.css":
+            self._asset("assets/site-footer.css")
             return
         if path == "/v1/networks":
             self._json(200, {"networks": [network.to_dict() for network in supported_networks()]})

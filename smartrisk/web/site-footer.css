@@ -1,0 +1,96 @@
+/* Shared SmartRisk footer */
+.site-footer {
+  width: 100%;
+  margin: 52px 0 0;
+  padding: 18px 0 22px;
+  background: #eef1f5;
+  color: #101216;
+  border-top: 1px solid rgba(18, 24, 32, 0.06);
+}
+
+.site-footer-inner {
+  width: min(1160px, calc(100% - 48px));
+  margin: 0 auto;
+}
+
+.site-footer-links {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 12px 32px;
+}
+
+.site-footer-links a {
+  color: #14171b !important;
+  text-decoration: underline !important;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.site-footer-links a:hover {
+  opacity: 0.68;
+}
+
+.site-footer-meta {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 20px;
+  color: #7b828c;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.site-footer-support {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #7b828c !important;
+  text-decoration: none !important;
+}
+
+.site-footer-support:hover {
+  color: #1b1f24 !important;
+}
+
+.site-footer-support svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+  flex: 0 0 auto;
+}
+
+.site-footer-divider {
+  width: 1px;
+  height: 18px;
+  background: rgba(87, 94, 103, 0.25);
+}
+
+@media (max-width: 760px) {
+  .site-footer {
+    margin-top: 40px;
+    padding: 16px 0 20px;
+  }
+
+  .site-footer-inner {
+    width: min(100% - 32px, 1160px);
+  }
+
+  .site-footer-links {
+    gap: 10px 20px;
+  }
+
+  .site-footer-links a {
+    font-size: 14px;
+  }
+
+  .site-footer-meta {
+    margin-top: 16px;
+    gap: 12px;
+    font-size: 13px;
+    flex-wrap: wrap;
+  }
+}

@@ -7,6 +7,9 @@ def test_contact_and_privacy_pages_exist():
     assert (root / "contact.html").is_file()
     assert (root / "privacy.html").is_file()
     assert (root / "info.css").is_file()
+    assert (root / "site-footer.css").is_file()
+    assert (root / "fulfillment-policy.html").is_file()
+    assert (root / "cookies-policy.html").is_file()
 
 
 def test_info_pages_have_human_content_and_navigation():
@@ -28,16 +31,20 @@ def test_full_site_page_set_exists_and_is_linked():
     for page in pages:
         assert (root / page).is_file()
     landing = (root / "index.html").read_text()
-    footer_checks = ["/about", "/security", "/privacy", "/terms", "/contact", "/how-it-works", "/methodology", "/supported-networks", "/risk-library", "/faq", "/disclaimer"]
+    footer_checks = ["/contact", "/developer#billing", "/terms", "/fulfillment-policy", "/privacy", "/cookies-policy"]
     for href in footer_checks:
         assert f'href="{href}"' in landing
     assert "Risk signals are stronger when the evidence agrees." in (root / "methodology.html").read_text()
     assert "No. The scanner is intentionally open." in (root / "faq.html").read_text()
+    for page in ["index.html", "auth.html", "developer.html", "results.html", "about.html", "contact.html", "privacy.html", "terms.html", "how-it-works.html", "methodology.html", "supported-networks.html", "risk-library.html", "faq.html", "disclaimer.html", "security.html", "admin.html"]:
+        html = (root / page).read_text()
+        assert "/assets/site-footer.css" in html
+        assert "support@smartrisk.io" in html
 
 
 def test_public_pages_are_english_and_search_ready():
     root = Path(__file__).resolve().parents[2] / "smartrisk" / "web"
-    public = ["index.html", "about.html", "how-it-works.html", "methodology.html", "faq.html", "risk-library.html", "security.html", "supported-networks.html", "contact.html", "privacy.html", "terms.html", "disclaimer.html"]
+    public = ["index.html", "about.html", "how-it-works.html", "methodology.html", "faq.html", "risk-library.html", "security.html", "supported-networks.html", "contact.html", "privacy.html", "terms.html", "disclaimer.html", "fulfillment-policy.html", "cookies-policy.html"]
     arabic = re.compile(r"[\u0600-\u06ff]")
     for page in public:
         html = (root / page).read_text()
