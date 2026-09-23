@@ -1,7 +1,6 @@
-.venv/
+# Python compiled files
 __pycache__/
-.pytest_cache/
-*.py[cod]
-*.egg-info/
-artifacts/
-.dist/
+*.pyc
+
+# Environment and config files
+.env

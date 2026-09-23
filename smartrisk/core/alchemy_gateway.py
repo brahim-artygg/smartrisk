@@ -12,6 +12,22 @@ from .evidence_store import SQLiteEvidenceStore
 from .models import RawAlchemyEvidence
 
 
+# Canonical ERC-20 Transfer event topic. Filtering eth_getLogs by this topic
+# keeps responses small and avoids the "log range too large" errors that made
+# free/low-limit Alchemy plans fail whole scans.
+TRANSFER_EVENT_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a5df52cd337"
+
+
+def transfer_log_filter(address: str, from_block: int, to_block: int) -> dict[str, Any]:
+    """Build a minimal-cost eth_getLogs filter for canonical Transfer events only."""
+    return {
+        "address": address,
+        "fromBlock": hex(from_block),
+        "toBlock": hex(to_block),
+        "topics": [TRANSFER_EVENT_TOPIC],
+    }
+
+
 class AlchemyGateway:
     """Shared Alchemy boundary: cache, raw evidence, capability probes and RPC helpers."""
 
