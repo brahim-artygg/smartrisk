@@ -311,12 +311,18 @@ async function loadResult() {
     showError(job.error || 'The scan failed.');
     return;
   }
-  if (!job.result) {
+  // /v1/scans/:id intentionally returns the public report envelope directly
+  // (risk, verdict, signals, dimensions). It does not expose the internal
+  // persisted `result` object. Keep the page contract aligned with that API.
+  if (!job.risk || !job.verdict) {
     showError('This scan does not contain a completed report yet.');
     return;
   }
-  window.__scanRequest = job.request || {};
-  renderOverview(job.result);
+  window.__scanRequest = {
+    token_address: job.address,
+    chain_id: job.chain_id,
+  };
+  renderOverview(job);
 }
 
 document.querySelectorAll('.module-card').forEach(button => {
