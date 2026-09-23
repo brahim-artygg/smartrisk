@@ -1,5 +1,5 @@
-.brand-logo { width: 34px; height: 34px; object-fit: cover; border-radius: 8px; flex: 0 0 auto; }
-.brand { display: inline-flex; align-items: center; gap: 10px; }
+.brand-logo { width: 48px; height: 48px; object-fit: cover; border-radius: 12px; flex: 0 0 auto; }
+.brand { display: inline-flex; align-items: center; gap: 12px; }
 :root {
   color-scheme: dark;
   --bg: #090b10;
@@ -58,13 +58,15 @@ button, input, select { font: inherit; }
 .account-link:hover { color: var(--text); border-color: #3a414e; }
 
 .brand {
-  display: inline-block;
+  position: fixed;
+  top: 28px;
+  left: 40px;
+  z-index: 2;
   color: var(--text);
   text-decoration: none;
-  font-size: 24px;
-  font-weight: 750;
+  font-size: 34px;
+  font-weight: 900;
   letter-spacing: -0.04em;
-  margin-bottom: 48px;
 }
 
 h1 {
@@ -187,7 +189,8 @@ h1 {
 
 @media (max-width: 680px) {
   .scanner { transform: none; }
-  .brand { margin-bottom: 34px; }
+  .brand { top: 20px; left: 20px; font-size: 27px; }
+  .brand-logo { width: 40px; height: 40px; border-radius: 10px; }
   .scan-box {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: 52px 52px;
