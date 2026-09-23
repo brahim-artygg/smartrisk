@@ -715,6 +715,9 @@ class ScanHandler(BaseHTTPRequestHandler):
         if path == "/assets/app.css":
             self._asset("assets/app.css")
             return
+        if path == "/assets/footer.css":
+            self._asset("footer.css")
+            return
         if path == "/assets/app.js":
             self._asset("assets/app.js")
             return
