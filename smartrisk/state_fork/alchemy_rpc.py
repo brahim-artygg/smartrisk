@@ -23,22 +23,22 @@ class AlchemyRpcClient:
         rpc_url: str | None = None,
         api_key: str | None = None,
         chain: str = "eth-mainnet",
-        timeout_seconds: float = 20.0,
-        retries: int = 2,
+        timeout_seconds: float | None = None,
+        retries: int | None = None,
         failover: bool = True,
     ):
         self.network = get_network(chain)
         self.chain = self.network.rpc_chain
         self.expected_chain_id = self.network.chain_id
         self.api_key = api_key or os.getenv("ALCHEMY_API_KEY")
-        self.timeout_seconds = timeout_seconds
-        self.retries = retries
+        self.timeout_seconds = float(timeout_seconds if timeout_seconds is not None else os.getenv("SMARTRISK_RPC_TIMEOUT_SECONDS", "20"))
+        self.retries = max(0, int(retries if retries is not None else os.getenv("SMARTRISK_RPC_RETRIES", "2")))
         self._rpc_url = rpc_url or self._url_from_env()
         self._router = None
         if rpc_url is None and failover:
             try:
                 from ..core.multi_provider import MultiProviderRpc
-                router = MultiProviderRpc.from_environment(chain=chain, timeout_seconds=timeout_seconds, retries_per_provider=max(0, retries - 1))
+                router = MultiProviderRpc.from_environment(chain=chain, timeout_seconds=self.timeout_seconds, retries_per_provider=max(0, self.retries - 1))
                 if len(router.providers) >= 2:
                     self._router = router
                     self._rpc_url = None

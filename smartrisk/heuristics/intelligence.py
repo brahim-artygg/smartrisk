@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -106,25 +107,49 @@ class IntelligenceAnalyzer:
         findings.extend(self._holder_findings(token_address, holders))
 
         pairs = self._market_pairs(market_observation.payload if market_observation and not market_observation.error else {})
-        pair_addresses = [str(item.get("pairAddress")) for item in pairs if item.get("pairAddress")][:max_pairs]
+        selected_pairs = [item for item in pairs[:max_pairs] if item.get("pairAddress")]
+        pair_addresses = [str(item.get("pairAddress")) for item in selected_pairs]
         pair_reports: list[dict[str, Any]] = []
         lp_observation_ids: list[str] = []
-        for pair in pairs[:max_pairs]:
-            pair_address = str(pair.get("pairAddress") or "")
-            if not pair_address:
-                continue
-            try:
-                report, pair_obs, pair_unknowns = self._analyze_pair_lp(
-                    chain_id, token_address, pair_address, anchor, window_blocks, holders.get("deployer_candidates", []), deployer_address
-                )
-                pair_reports.append(report)
-                observations.extend(pair_obs)
-                lp_observation_ids.extend(item.observation_id for item in pair_obs)
-                unknowns.extend(pair_unknowns)
-                findings.extend(self._lp_findings(pair_address, report))
-            except Exception as exc:
-                diagnostics.append(f"LP analysis failed for {pair_address}: {exc}")
-                unknowns.append(f"LP analysis unavailable for {pair_address}")
+
+        def analyze_pair(item: dict[str, Any]):
+            pair_address = str(item.get("pairAddress") or "")
+            return pair_address, self._analyze_pair_lp(
+                chain_id, token_address, pair_address, anchor, window_blocks, holders.get("deployer_candidates", []), deployer_address
+            )
+
+        rpc = getattr(self.alchemy, "rpc", None)
+        workers = max(1, min(len(selected_pairs), int(getattr(rpc, "rpc_log_concurrency", 3)))) if selected_pairs else 1
+        if len(selected_pairs) > 1:
+            with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="smartrisk-lp") as executor:
+                futures = {executor.submit(analyze_pair, pair): pair for pair in selected_pairs}
+                for future in as_completed(futures):
+                    try:
+                        pair_address, (report, pair_obs, pair_unknowns) = future.result()
+                        pair_reports.append(report)
+                        observations.extend(pair_obs)
+                        lp_observation_ids.extend(item.observation_id for item in pair_obs)
+                        unknowns.extend(pair_unknowns)
+                        findings.extend(self._lp_findings(pair_address, report))
+                    except Exception as exc:
+                        pair_address = str(futures[future].get("pairAddress") or "")
+                        diagnostics.append(f"LP analysis failed for {pair_address}: {exc}")
+                        unknowns.append(f"LP analysis unavailable for {pair_address}")
+        else:
+            for pair in selected_pairs:
+                try:
+                    pair_address, (report, pair_obs, pair_unknowns) = analyze_pair(pair)
+                    pair_reports.append(report)
+                    observations.extend(pair_obs)
+                    lp_observation_ids.extend(item.observation_id for item in pair_obs)
+                    unknowns.extend(pair_unknowns)
+                    findings.extend(self._lp_findings(pair_address, report))
+                except Exception as exc:
+                    pair_address = str(pair.get("pairAddress") or "")
+                    diagnostics.append(f"LP analysis failed for {pair_address}: {exc}")
+                    unknowns.append(f"LP analysis unavailable for {pair_address}")
+
+        pair_reports.sort(key=lambda item: str(item.get("pair_address") or ""))
 
         history = self._historical_behavior(token_address, token_ledger, pair_addresses, anchor, window_blocks, logs_available=bool(token_logs and not token_logs.error))
         clusters = self._wallet_clusters(token_address, token_ledger, pair_addresses, holders.get("balances", {}), logs_available=bool(token_logs and not token_logs.error))

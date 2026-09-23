@@ -36,6 +36,7 @@ DEFAULT_PLANS = (
         "max_active_batches": 2,
         "price_usdt": 29.0,
         "active": 1,
+        "full_results": 1,
     },
     {
         "id": "pro",
@@ -47,6 +48,7 @@ DEFAULT_PLANS = (
         "max_active_batches": 4,
         "price_usdt": 99.0,
         "active": 1,
+        "full_results": 1,
     },
 )
 
@@ -84,6 +86,7 @@ def _plan_dict(row: tuple[Any, ...]) -> dict[str, Any]:
         "max_active_batches": int(row[6]),
         "price_usdt": float(row[7] or 0),
         "active": bool(row[8]),
+        "full_results": bool(row[9]) if len(row) > 9 else True,
     }
 
 
@@ -107,6 +110,7 @@ class DeveloperStore:
                     max_active_batches INTEGER NOT NULL,
                     price_usdt REAL NOT NULL DEFAULT 0,
                     active INTEGER NOT NULL DEFAULT 1,
+                    full_results INTEGER NOT NULL DEFAULT 1,
                     created_at TEXT NOT NULL
                 );
 
@@ -197,17 +201,19 @@ class DeveloperStore:
                 db.execute("ALTER TABLE api_plans ADD COLUMN price_usdt REAL NOT NULL DEFAULT 0")
             if "active" not in plan_columns:
                 db.execute("ALTER TABLE api_plans ADD COLUMN active INTEGER NOT NULL DEFAULT 1")
+            if "full_results" not in plan_columns:
+                db.execute("ALTER TABLE api_plans ADD COLUMN full_results INTEGER NOT NULL DEFAULT 1")
             columns = {row[1] for row in db.execute("PRAGMA table_info(api_batches)").fetchall()}
             if "request_fingerprint" not in columns:
                 db.execute("ALTER TABLE api_batches ADD COLUMN request_fingerprint TEXT")
             for plan in DEFAULT_PLANS:
                 db.execute(
-                    """INSERT OR IGNORE INTO api_plans(id,name,monthly_scan_limit,batch_limit,requests_per_second,concurrency,max_active_batches,price_usdt,active,created_at)
-                       VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                    """INSERT OR IGNORE INTO api_plans(id,name,monthly_scan_limit,batch_limit,requests_per_second,concurrency,max_active_batches,price_usdt,active,full_results,created_at)
+                       VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
                     (
                         plan["id"], plan["name"], plan["monthly_scan_limit"], plan["batch_limit"],
                         plan["requests_per_second"], plan["concurrency"], plan["max_active_batches"],
-                        plan["price_usdt"], plan["active"], _now(),
+                        plan["price_usdt"], plan["active"], plan.get("full_results", 1), _now(),
                     ),
                 )
 
@@ -219,14 +225,14 @@ class DeveloperStore:
     def plans(self) -> list[dict[str, Any]]:
         with self._connect() as db:
             rows = db.execute(
-                "SELECT id,name,monthly_scan_limit,batch_limit,requests_per_second,concurrency,max_active_batches,price_usdt,active FROM api_plans ORDER BY CASE id WHEN 'developer' THEN 1 WHEN 'pro' THEN 2 ELSE 3 END, id"
+                "SELECT id,name,monthly_scan_limit,batch_limit,requests_per_second,concurrency,max_active_batches,price_usdt,active,full_results FROM api_plans ORDER BY CASE id WHEN 'developer' THEN 1 WHEN 'pro' THEN 2 ELSE 3 END, id"
             ).fetchall()
         return [_plan_dict(row) for row in rows]
 
     def plan(self, plan_id: str) -> dict[str, Any]:
         with self._connect() as db:
             row = db.execute(
-                "SELECT id,name,monthly_scan_limit,batch_limit,requests_per_second,concurrency,max_active_batches,price_usdt,active FROM api_plans WHERE id=?",
+                "SELECT id,name,monthly_scan_limit,batch_limit,requests_per_second,concurrency,max_active_batches,price_usdt,active,full_results FROM api_plans WHERE id=?",
                 (plan_id,),
             ).fetchone()
         if not row:
@@ -297,7 +303,7 @@ class DeveloperStore:
             raise AuthError("Invalid API key.", "INVALID_API_KEY", 401)
         with self._connect() as db:
             row = db.execute(
-                """SELECT k.id,k.user_id,k.revoked_at,k.disabled_at,s.plan_id,s.status,p.id,p.name,p.monthly_scan_limit,p.batch_limit,p.requests_per_second,p.concurrency,p.max_active_batches,p.active,p.price_usdt
+                """SELECT k.id,k.user_id,k.revoked_at,k.disabled_at,s.plan_id,s.status,p.id,p.name,p.monthly_scan_limit,p.batch_limit,p.requests_per_second,p.concurrency,p.max_active_batches,p.active,p.price_usdt,p.full_results
                    FROM api_keys k
                    LEFT JOIN subscriptions s ON s.user_id=k.user_id
                    LEFT JOIN api_plans p ON p.id=s.plan_id
@@ -333,6 +339,7 @@ class DeveloperStore:
             "max_active_batches": int(row[12] or 2),
             "price_usdt": float(row[14] or 0),
             "active": bool(row[13]),
+            "full_results": bool(row[15]) if len(row) > 15 else True,
         }
         return key_meta, plan
 
@@ -710,6 +717,7 @@ class DeveloperAPIService:
             compiler_version=item.get("compiler_version"),
             window_blocks=item.get("window_blocks", 10_000),
             deployer_address=item.get("deployer_address"),
+            scan_profile="paid",
         )
 
     def _process_batch(self, batch_id: str, user_id: str, plan: dict[str, Any], normalized: list[dict[str, Any]]) -> None:
@@ -795,7 +803,9 @@ class DeveloperAPIService:
     def batch(self, user_id: str, batch_id: str) -> dict[str, Any]:
         return self.store.get_batch(batch_id, user_id)
 
-    def result_rows(self, user_id: str, batch_id: str, offset: int, limit: int, include_full: bool = False) -> tuple[list[dict[str, Any]], int, dict[str, Any]]:
+    def result_rows(self, user_id: str, batch_id: str, offset: int, limit: int, include_full: bool = False, full_allowed: bool = True) -> tuple[list[dict[str, Any]], int, dict[str, Any]]:
+        if include_full and not full_allowed:
+            raise AuthError("Your plan does not include full scan reports.", "FULL_RESULTS_NOT_INCLUDED", 403)
         if include_full and limit > 100:
             limit = 100
         batch = self.store.get_batch(batch_id, user_id)
@@ -822,7 +832,9 @@ class DeveloperAPIService:
             rows.append(row)
         return rows, len(batch["items"]), batch
 
-    def single_scan(self, user_id: str, scan_job_id: str, include_full: bool = False) -> dict[str, Any]:
+    def single_scan(self, user_id: str, scan_job_id: str, include_full: bool = False, full_allowed: bool = True) -> dict[str, Any]:
+        if include_full and not full_allowed:
+            raise AuthError("Your plan does not include full scan reports.", "FULL_RESULTS_NOT_INCLUDED", 403)
         belongs = self.store.batch_for_scan(user_id, scan_job_id)
         if not belongs:
             raise AuthError("Scan not found.", "SCAN_NOT_FOUND", 404)
@@ -837,8 +849,8 @@ class DeveloperAPIService:
     def shutdown(self) -> None:
         self._executor.shutdown(wait=False, cancel_futures=True)
 
-    def export(self, user_id: str, batch_id: str, fmt: str, include_full: bool = False) -> tuple[str, str]:
-        rows, _, _ = self.result_rows(user_id, batch_id, 0, 10000, include_full=include_full)
+    def export(self, user_id: str, batch_id: str, fmt: str, include_full: bool = False, full_allowed: bool = True) -> tuple[str, str]:
+        rows, _, _ = self.result_rows(user_id, batch_id, 0, 10000, include_full=include_full, full_allowed=full_allowed)
         if fmt == "json":
             return "application/json", json.dumps(rows, indent=2, sort_keys=True, default=str)
         if fmt == "jsonl":

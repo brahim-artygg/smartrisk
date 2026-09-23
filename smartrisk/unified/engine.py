@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import time
 import uuid
-from typing import Any
+from typing import Any, Callable
 
 from ..heuristics.engine import HeuristicsEngine
 from ..core.models import AnalysisJob, SourceBundle, UnifiedAnchor
@@ -11,6 +12,7 @@ from ..core.networks import get_network
 from ..heuristics.alchemy_source import AlchemySource
 from ..static_engine.engine import StaticEngine
 from .models import EngineSummary, UnifiedRequest, UnifiedRiskReport
+from .profiles import get_scan_profile, clamp_window
 
 
 class UnifiedRiskEngine:
@@ -26,8 +28,26 @@ class UnifiedRiskEngine:
         self.fork = fork or StateForkEngine()
         self.heuristics = heuristics or HeuristicsEngine()
 
-    def analyze(self, request: UnifiedRequest, run_id: str | None = None) -> UnifiedRiskReport:
+    def analyze(
+        self,
+        request: UnifiedRequest,
+        run_id: str | None = None,
+        progress_callback: Callable[[str, int], None] | None = None,
+        deadline_at: float | None = None,
+    ) -> UnifiedRiskReport:
         run_id = run_id or str(uuid.uuid4())
+
+        def progress(stage: str, percent: int) -> None:
+            if progress_callback is not None:
+                try:
+                    progress_callback(stage, percent)
+                except Exception:
+                    pass
+
+        def deadline_reached() -> bool:
+            return deadline_at is not None and time.monotonic() >= deadline_at
+
+        progress("network", 10)
         summaries: list[EngineSummary] = []
         findings: list[dict[str, Any]] = []
         decisions: list[dict[str, Any]] = []
@@ -40,13 +60,19 @@ class UnifiedRiskEngine:
         shared_anchor = None
         active_heuristics = self.heuristics
         active_fork = self.fork
+        profile = get_scan_profile(request.scan_profile)
+        effective_window = clamp_window(request.window_blocks, profile)
         network = get_network(request.chain_id) if request.chain_id else None
         if network is not None:
             heuristic_source = getattr(self.heuristics, "alchemy", None)
             heuristic_rpc = getattr(heuristic_source, "rpc", None)
             if heuristic_rpc is not None and getattr(heuristic_rpc, "chain", None) != network.rpc_chain:
                 active_heuristics = HeuristicsEngine(
-                    alchemy=AlchemySource(rpc=AlchemyRpcClient(chain=network.rpc_chain)),
+                    alchemy=AlchemySource(rpc=AlchemyRpcClient(
+                        chain=network.rpc_chain,
+                        timeout_seconds=profile.rpc_timeout_seconds,
+                        retries=profile.rpc_retries,
+                    )),
                     dexscreener=self.heuristics.dexscreener,
                     extractor=self.heuristics.extractor,
                     rules=self.heuristics.rules,
@@ -54,7 +80,10 @@ class UnifiedRiskEngine:
                 )
             fork_rpc = getattr(self.fork, "rpc", None)
             if fork_rpc is not None and getattr(fork_rpc, "chain", None) != network.rpc_chain:
-                active_fork = StateForkEngine(rpc=AlchemyRpcClient(chain=network.rpc_chain), fork=self.fork)
+                active_fork = StateForkEngine(
+                    rpc=AlchemyRpcClient(chain=network.rpc_chain, timeout_seconds=profile.rpc_timeout_seconds, retries=profile.rpc_retries),
+                    fork=self.fork,
+                )
         if effective_block_number is None and request.chain_id:
             source = getattr(active_heuristics, "alchemy", None)
             anchor_fn = getattr(source, "anchor", None)
@@ -72,7 +101,8 @@ class UnifiedRiskEngine:
             "A fingerprint is an evidence correlation signal, not a standalone maliciousness verdict.",
         ]
 
-        if request.project:
+        progress("static", 25)
+        if request.project and not deadline_reached():
             static_report = self.static.analyze(request.project, run_id=f"{run_id}:static", compiler_version=request.compiler_version)
             static_dict = static_report.to_dict()
             static_score = self._static_score(static_report)
@@ -83,10 +113,12 @@ class UnifiedRiskEngine:
             evidence.extend(static_dict.get("evidence", []))
             unknowns.extend(f"static: {reason}" for reason in static_report.unknown_reasons)
         else:
-            summaries.append(EngineSummary("static_ast", "unknown", None, 0.0, 0.0, ["project not provided"]))
-            unknowns.append("static: project not provided")
+            reason = "project not provided" if not request.project else "scan deadline reached before static analysis"
+            summaries.append(EngineSummary("static_ast", "unknown", None, 0.0, 0.0, [reason]))
+            unknowns.append(f"static: {reason}")
 
-        if request.honeypot:
+        progress("state_fork", 45)
+        if request.honeypot and not deadline_reached():
             fork_report = active_fork.analyze_honeypot(request.honeypot, run_id=f"{run_id}:fork", block_tag=request.block_tag, block_number=effective_block_number)
             fork_dict = fork_report.to_dict()
             fork_score, fork_unknowns = self._fork_score(fork_report)
@@ -95,7 +127,7 @@ class UnifiedRiskEngine:
             summaries.append(EngineSummary("state_fork", fork_report.status, fork_score, fork_confidence, fork_coverage, fork_report.unknown_reasons + fork_unknowns, fork_dict))
             decisions.extend(self._fork_decisions(fork_report))
             unknowns.extend(f"fork: {reason}" for reason in fork_report.unknown_reasons + fork_unknowns)
-        elif request.scenarios:
+        elif request.scenarios and not deadline_reached():
             fork_report = active_fork.analyze(request.scenarios, run_id=f"{run_id}:fork", block_tag=request.block_tag, block_number=effective_block_number)
             fork_dict = fork_report.to_dict()
             fork_score, fork_unknowns = self._fork_score(fork_report)
@@ -105,19 +137,33 @@ class UnifiedRiskEngine:
             decisions.extend(self._fork_decisions(fork_report))
             unknowns.extend(f"fork: {reason}" for reason in fork_report.unknown_reasons + fork_unknowns)
         else:
-            summaries.append(EngineSummary("state_fork", "unknown", None, 0.0, 0.0, ["scenarios not provided"]))
-            unknowns.append("fork: scenarios not provided")
+            reason = "scenarios not provided" if not (request.honeypot or request.scenarios) else "scan deadline reached before state-fork analysis"
+            summaries.append(EngineSummary("state_fork", "unknown", None, 0.0, 0.0, [reason]))
+            unknowns.append(f"fork: {reason}")
 
-        if request.chain_id and request.token_address:
+        progress("heuristics", 70)
+        if request.chain_id and request.token_address and not deadline_reached():
             heuristic_kwargs = {
                 "run_id": f"{run_id}:heuristics",
                 "block_tag": request.block_tag,
                 "block_number": effective_block_number,
-                "window_blocks": request.window_blocks,
+                "window_blocks": effective_window,
+                "max_pairs": profile.max_pairs,
+                "max_holder_contract_probes": profile.max_holder_contract_probes,
+                "rpc_log_concurrency": profile.rpc_log_concurrency,
+                "max_log_chunk_blocks": 1_500,
             }
             if request.deployer_address is not None:
                 heuristic_kwargs["deployer_address"] = request.deployer_address
-            heuristic_report = active_heuristics.analyze(request.chain_id, request.token_address, **heuristic_kwargs)
+            try:
+                heuristic_report = active_heuristics.analyze(request.chain_id, request.token_address, **heuristic_kwargs)
+            except TypeError as exc:
+                # Keep compatibility with injected test/dummy engines that implement the pre-profile API.
+                if "unexpected keyword argument" not in str(exc):
+                    raise
+                for key in ("max_pairs", "max_holder_contract_probes", "rpc_log_concurrency", "max_log_chunk_blocks"):
+                    heuristic_kwargs.pop(key, None)
+                heuristic_report = active_heuristics.analyze(request.chain_id, request.token_address, **heuristic_kwargs)
             heuristic_dict = heuristic_report.to_dict()
             risk = heuristic_dict.get("risk", {})
             intelligence = heuristic_dict.get("intelligence", {}) or {}
@@ -142,9 +188,11 @@ class UnifiedRiskEngine:
                     })
             unknowns.extend(f"heuristics: {reason}" for reason in risk.get("unknowns", []))
         else:
-            summaries.append(EngineSummary("heuristics", "unknown", None, 0.0, 0.0, ["chain_id and token_address not provided"]))
-            unknowns.append("heuristics: chain_id and token_address not provided")
+            reason = "chain_id and token_address not provided" if not (request.chain_id and request.token_address) else "scan deadline reached before heuristics analysis"
+            summaries.append(EngineSummary("heuristics", "unknown", None, 0.0, 0.0, [reason]))
+            unknowns.append(f"heuristics: {reason}")
 
+        progress("correlation", 90)
         correlations = self._correlate(static_dict, fork_dict, heuristic_dict, findings)
         for correlation in correlations:
             correlation_findings = correlation.get("finding_ids", [])
@@ -182,6 +230,7 @@ class UnifiedRiskEngine:
         verdict, verdict_label, primary_detection = self._derive_verdict(
             hard_verdicts, findings, score, band, status, coverage
         )
+        progress("complete", 100)
         return UnifiedRiskReport(
             run_id=run_id,
             status=status,

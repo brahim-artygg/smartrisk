@@ -99,7 +99,8 @@ function renderGauge(report) {
 }
 
 function renderBadges(report) {
-  const dimensions = report?.risk_dimensions || {};
+  const rawDimensions = report?.risk_dimensions || {};
+  const dimensions = Array.isArray(rawDimensions) ? Object.fromEntries(rawDimensions.map(item => [item.id, item])) : rawDimensions;
   const badgeData = [
     ['Source', dimensions.contract_security, 'contract_security'],
     ['Controls', dimensions.ownership_security, 'ownership_security'],
@@ -115,6 +116,7 @@ function renderBadges(report) {
   }).join('');
 
   const engines = Array.isArray(report?.engines) ? report.engines : [];
+  const isPublic = !Array.isArray(report?.engines);
   const pills = [
     ['Source', engines.some(e => e.name === 'static_ast' && e.status === 'complete')],
     ['Controls', engines.some(e => e.name === 'static_ast' && e.status === 'complete') || engines.some(e => e.name === 'heuristics' && e.status === 'complete')],
@@ -127,6 +129,7 @@ function renderBadges(report) {
 }
 
 function renderOverview(report) {
+  const isPublic = !Array.isArray(report?.engines);
   const heuristic = heuristicSummary(report);
   const features = featuresOf(heuristic);
   const fork = stateForkSummary(report);
@@ -137,9 +140,9 @@ function renderOverview(report) {
   renderGauge(risk);
 
   const request = window.__scanRequest || {};
-  const chainId = request.chain_id;
-  els.networkName.textContent = networkNames.get(String(chainId)) || (chainId ? `Chain ${chainId}` : 'Network unknown');
-  els.contractAddress.textContent = request.token_address || 'Contract address unavailable';
+  const chainId = request.chain_id || report?.chain_id;
+  els.networkName.textContent = networkNames.get(String(chainId)) || report?.network || (chainId ? `Chain ${chainId}` : 'Network unknown');
+  els.contractAddress.textContent = request.token_address || report?.address || 'Contract address unavailable';
 
   els.riskTitle.textContent = verdict.label || 'UNVERIFIED';
   els.riskExplanation.textContent = primary.explanation || primary.title || 'SmartRisk did not produce a stronger primary detection from the available evidence.';
@@ -195,9 +198,13 @@ function renderOverview(report) {
   );
 
   renderBadges(report);
-  renderPermissions(report, features);
-  renderVulnerabilities(report);
-  renderTechnical(report);
+  if (isPublic) {
+    renderPublicSummary(report);
+  } else {
+    renderPermissions(report, features);
+    renderVulnerabilities(report);
+    renderTechnical(report);
+  }
 
   const version = report?.versions?.release || '0.9.0';
   const coverage = risk?.coverage == null ? null : `${Math.round(Number(risk.coverage) * 100)}% coverage`;
@@ -219,7 +226,7 @@ function renderPermissions(report, features) {
 }
 
 function renderVulnerabilities(report) {
-  const findings = Array.isArray(report?.findings) ? [...report.findings] : [];
+  const findings = [...publicSignals(report)];
   findings.sort((a, b) => {
     const rank = { critical: 0, high: 1, medium: 2, low: 3 };
     return (rank[String(a.severity || '').toLowerCase()] ?? 9) - (rank[String(b.severity || '').toLowerCase()] ?? 9);
@@ -237,6 +244,15 @@ function renderVulnerabilities(report) {
       </div>
       <div class="data-value">${esc(item.status || 'observed')}</div>
     </div>`).join('')}</div>`;
+}
+
+
+function renderPublicSummary(report) {
+  const signals = publicSignals(report).slice(0, 5);
+  const dimensions = Array.isArray(report?.risk_dimensions) ? report.risk_dimensions : [];
+  els.permissionsContent.innerHTML = `<div class="rows"><div class="data-row"><div class="data-main"><div class="data-title">Verification</div><div class="data-sub">Coverage and confidence reflect the available public scan evidence.</div></div><div class="data-value">${esc(report?.risk?.coverage == null ? 'Unknown' : `${Math.round(Number(report.risk.coverage) * 100)}%`)}</div></div></div>`;
+  els.vulnerabilitiesContent.innerHTML = signals.length ? `<div class="rows">${signals.map(item => `<div class="data-row"><div class="data-main"><div class="data-title">${esc(item.title || 'Risk signal')}<span class="severity ${esc(String(item.severity || '').toLowerCase())}">${esc(item.severity || 'signal')}</span></div><div class="data-sub">${esc(item.description || '')}</div></div><div class="data-value">${esc(item.status || 'observed')}</div></div>`).join('')}</div>` : '<div class="empty-state">No major signals were returned in the current scan.</div>';
+  els.technicalContent.innerHTML = `<div class="rows">${dimensions.map(item => `<div class="data-row"><div class="data-main"><div class="data-title">${esc(item.label || item.id || 'Risk dimension')}</div><div class="data-sub">${esc(item.severity || 'unknown')} · ${esc(item.signals == null ? 'No signal count' : `${item.signals} signal(s)`)}</div></div><div class="data-value">Public</div></div>`).join('')}<div class="data-row"><div class="data-main"><div class="data-title">Full report</div><div class="data-sub">Available through an eligible paid API key.</div></div><div class="data-value">Locked</div></div></div>`;
 }
 
 function renderTechnical(report) {

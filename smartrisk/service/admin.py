@@ -346,11 +346,11 @@ class AdminStore:
     # ---------- plans ----------
     def plans(self) -> list[dict[str, Any]]:
         with self._connect() as db:
-            rows=db.execute("SELECT id,name,monthly_scan_limit,batch_limit,requests_per_second,concurrency,max_active_batches,price_usdt,active FROM api_plans ORDER BY CASE id WHEN 'developer' THEN 1 WHEN 'pro' THEN 2 ELSE 3 END,id").fetchall()
-        return [{"id":r[0],"name":r[1],"monthly_scan_limit":int(r[2]),"batch_limit":int(r[3]),"requests_per_second":int(r[4]),"concurrency":int(r[5]),"max_active_batches":int(r[6]),"price_usdt":float(r[7]),"active":bool(r[8])} for r in rows]
+            rows=db.execute("SELECT id,name,monthly_scan_limit,batch_limit,requests_per_second,concurrency,max_active_batches,price_usdt,active,full_results FROM api_plans ORDER BY CASE id WHEN 'developer' THEN 1 WHEN 'pro' THEN 2 ELSE 3 END,id").fetchall()
+        return [{"id":r[0],"name":r[1],"monthly_scan_limit":int(r[2]),"batch_limit":int(r[3]),"requests_per_second":int(r[4]),"concurrency":int(r[5]),"max_active_batches":int(r[6]),"price_usdt":float(r[7]),"active":bool(r[8]),"full_results":bool(r[9]) if len(r)>9 else True} for r in rows]
 
     def update_plan(self, plan_id: str, patch: dict[str, Any], admin_id: str, ip: str | None = None) -> dict[str, Any]:
-        allowed={"name","monthly_scan_limit","batch_limit","requests_per_second","concurrency","max_active_batches","price_usdt","active"}
+        allowed={"name","monthly_scan_limit","batch_limit","requests_per_second","concurrency","max_active_batches","price_usdt","active","full_results"}
         patch={k:v for k,v in patch.items() if k in allowed}
         if not patch: raise AuthError("No valid plan fields provided.","NO_FIELDS",422)
         for k in ("monthly_scan_limit","batch_limit","requests_per_second","concurrency","max_active_batches"):

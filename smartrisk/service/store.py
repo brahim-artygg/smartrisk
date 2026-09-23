@@ -26,7 +26,9 @@ class JobStore:
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     attempts INTEGER NOT NULL DEFAULT 0,
-                    started_at TEXT
+                    started_at TEXT,
+                    progress_stage TEXT NOT NULL DEFAULT 'queued',
+                    progress_percent INTEGER NOT NULL DEFAULT 0
                 )"""
             )
             columns = {row[1] for row in db.execute("PRAGMA table_info(jobs)").fetchall()}
@@ -34,6 +36,10 @@ class JobStore:
                 db.execute("ALTER TABLE jobs ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0")
             if "started_at" not in columns:
                 db.execute("ALTER TABLE jobs ADD COLUMN started_at TEXT")
+            if "progress_stage" not in columns:
+                db.execute("ALTER TABLE jobs ADD COLUMN progress_stage TEXT NOT NULL DEFAULT 'queued'")
+            if "progress_percent" not in columns:
+                db.execute("ALTER TABLE jobs ADD COLUMN progress_percent INTEGER NOT NULL DEFAULT 0")
 
     def _connect(self):
         db = sqlite3.connect(self.path, timeout=30)
@@ -58,10 +64,20 @@ class JobStore:
         now = self._now()
         with self._lock, self._connect() as db:
             cur = db.execute(
-                "UPDATE jobs SET status='running', attempts=attempts+1, started_at=?, updated_at=? WHERE job_id=? AND status='pending'",
+                "UPDATE jobs SET status='running', attempts=attempts+1, started_at=?, updated_at=?, progress_stage='starting', progress_percent=0 WHERE job_id=? AND status='pending'",
                 (now, now, job_id),
             )
             return cur.rowcount == 1
+
+    def update_progress(self, job_id: str, stage: str, percent: int) -> dict[str, Any]:
+        now = self._now()
+        percent = max(0, min(100, int(percent)))
+        with self._lock, self._connect() as db:
+            db.execute(
+                "UPDATE jobs SET progress_stage=?, progress_percent=?, updated_at=? WHERE job_id=?",
+                (str(stage)[:120], percent, now, job_id),
+            )
+        return self.get(job_id)
 
     def update(self, job_id: str, status: str, result: dict[str, Any] | None = None, error: str | None = None) -> dict[str, Any]:
         now = self._now()
@@ -97,7 +113,7 @@ class JobStore:
     def list_by_status(self, status: str, limit: int = 100) -> list[dict[str, Any]]:
         with self._connect() as db:
             rows = db.execute(
-                "SELECT job_id,status,request_json,result_json,error,created_at,updated_at,attempts,started_at FROM jobs WHERE status=? ORDER BY created_at LIMIT ?",
+                "SELECT job_id,status,request_json,result_json,error,created_at,updated_at,attempts,started_at,progress_stage,progress_percent FROM jobs WHERE status=? ORDER BY created_at LIMIT ?",
                 (status, max(1, limit)),
             ).fetchall()
         return [self._row_to_dict(row) for row in rows]
@@ -105,7 +121,7 @@ class JobStore:
     def get(self, job_id: str) -> dict[str, Any]:
         with self._connect() as db:
             row = db.execute(
-                "SELECT job_id,status,request_json,result_json,error,created_at,updated_at,attempts,started_at FROM jobs WHERE job_id=?",
+                "SELECT job_id,status,request_json,result_json,error,created_at,updated_at,attempts,started_at,progress_stage,progress_percent FROM jobs WHERE job_id=?",
                 (job_id,),
             ).fetchone()
         if not row:
@@ -124,4 +140,6 @@ class JobStore:
             "updated_at": row[6],
             "attempts": int(row[7] or 0),
             "started_at": row[8],
+            "progress_stage": row[9] if len(row) > 9 else ("complete" if row[1] in {"complete", "partial", "unknown"} else row[1]),
+            "progress_percent": int(row[10] if len(row) > 10 and row[10] is not None else (100 if row[1] in {"complete", "partial", "unknown", "failed"} else 0)),
         }

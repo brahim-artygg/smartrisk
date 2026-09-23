@@ -30,17 +30,22 @@ async function submitScan(tokenAddress) {
 }
 
 async function poll(jobId) {
-  for (let attempt = 0; attempt < 120; attempt += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+  const startedAt = Date.now();
+  while (true) {
+    if (Date.now() - startedAt > 180000) {
+      throw new Error('The scan is still running. Please keep this page open and refresh later.');
+    }
     const response = await fetch(`/v1/scans/${encodeURIComponent(jobId)}`);
     if (!response.ok) throw new Error('Scan status could not be loaded.');
     const payload = await response.json();
     if (payload.status === 'complete' || payload.status === 'partial' || payload.status === 'unknown' || payload.status === 'failed') {
       return payload;
     }
-    statusText.textContent = 'Analyzing contract…';
+    const stage = String(payload.progress_stage || 'analysis').replaceAll('_', ' ');
+    const pct = Number.isFinite(Number(payload.progress_percent)) ? ` ${Math.max(0, Math.min(100, Number(payload.progress_percent)))}%` : '';
+    statusText.textContent = `Analyzing ${stage}…${pct}`;
+    await new Promise((resolve) => setTimeout(resolve, Math.max(500, Number(payload.poll_after_ms || 1000))));
   }
-  throw new Error('The scan is taking longer than expected.');
 }
 
 form.addEventListener('submit', async (event) => {

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Any
 
@@ -39,34 +40,83 @@ class AlchemySource:
         value, _evidence = self.gateway.call("eth_getBalance", [address, hex(anchor.block_number)], anchor=anchor)
         return self._observation("eth_getBalance", address, {"balance": value}, anchor)
 
-    def get_logs(self, address: str, anchor: ChainAnchor, from_block: int, to_block: int, max_chunk_blocks: int = 512) -> RawObservation:
-        """Read logs with adaptive chunking so free/low-limit RPC plans do not fail a scan."""
+    def get_logs(
+        self,
+        address: str,
+        anchor: ChainAnchor,
+        from_block: int,
+        to_block: int,
+        max_chunk_blocks: int = 1_500,
+        concurrency: int = 4,
+        topic0: str | None = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+    ) -> RawObservation:
+        """Read filtered logs with bounded parallelism and adaptive fallback.
+
+        SmartRisk primarily consumes ERC-20/ERC-721 Transfer events for holder/history
+        analysis, so filtering by topic0 materially reduces provider payload size.
+        """
         if from_block > to_block:
             return self._observation("eth_getLogs", address, {"logs": [], "fromBlock": from_block, "toBlock": to_block, "chunks": 0}, anchor)
-        chunks: list[dict[str, Any]] = []
-        start = from_block
-        chunk_count = 0
-        while start <= to_block:
-            end = min(to_block, start + max(1, max_chunk_blocks) - 1)
-            logs = self._get_logs_chunk(address, start, end, min_chunk=1, anchor=anchor)
-            chunks.extend(logs)
-            chunk_count += 1
-            start = end + 1
-        return self._observation("eth_getLogs", address, {"logs": chunks, "fromBlock": from_block, "toBlock": to_block, "chunks": chunk_count}, anchor)
 
-    def _get_logs_chunk(self, address: str, from_block: int, to_block: int, min_chunk: int = 1, anchor: ChainAnchor | None = None) -> list[dict[str, Any]]:
+        size = max(1, int(max_chunk_blocks))
+        ranges = []
+        start = from_block
+        while start <= to_block:
+            end = min(to_block, start + size - 1)
+            ranges.append((start, end))
+            start = end + 1
+
+        results: dict[int, list[dict[str, Any]]] = {}
+        max_workers = max(1, min(int(concurrency), len(ranges)))
+        if max_workers == 1:
+            for idx, (start, end) in enumerate(ranges):
+                results[idx] = self._get_logs_chunk(address, start, end, min_chunk=1, anchor=anchor, topic0=topic0)
+        else:
+            with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="smartrisk-rpc-logs") as executor:
+                futures = {
+                    executor.submit(self._get_logs_chunk, address, start, end, 1, anchor, topic0): idx
+                    for idx, (start, end) in enumerate(ranges)
+                }
+                for future in as_completed(futures):
+                    results[futures[future]] = future.result()
+
+        chunks: list[dict[str, Any]] = []
+        for idx in range(len(ranges)):
+            chunks.extend(results.get(idx, []))
+        return self._observation(
+            "eth_getLogs", address,
+            {
+                "logs": chunks,
+                "fromBlock": from_block,
+                "toBlock": to_block,
+                "chunks": len(ranges),
+                "topic0": topic0,
+            },
+            anchor,
+        )
+
+    def _get_logs_chunk(
+        self,
+        address: str,
+        from_block: int,
+        to_block: int,
+        min_chunk: int = 1,
+        anchor: ChainAnchor | None = None,
+        topic0: str | None = None,
+    ) -> list[dict[str, Any]]:
+        params = {"address": address, "fromBlock": hex(from_block), "toBlock": hex(to_block)}
+        if topic0:
+            params["topics"] = [topic0]
         try:
-            result, _evidence = self.gateway.get_logs(
-                {"address": address, "fromBlock": hex(from_block), "toBlock": hex(to_block)},
-                anchor=anchor,
-                fresh=True,
-            )
+            result, _evidence = self.gateway.get_logs(params, anchor=anchor, fresh=False)
             return [item for item in (result or []) if isinstance(item, dict)]
         except Exception:
             if from_block >= to_block or (to_block - from_block + 1) <= min_chunk:
                 raise
             midpoint = (from_block + to_block) // 2
-            return self._get_logs_chunk(address, from_block, midpoint, min_chunk, anchor) + self._get_logs_chunk(address, midpoint + 1, to_block, min_chunk, anchor)
+            left = self._get_logs_chunk(address, from_block, midpoint, min_chunk, anchor, topic0)
+            right = self._get_logs_chunk(address, midpoint + 1, to_block, min_chunk, anchor, topic0)
+            return left + right
 
     def get_storage_at(self, address: str, slot: str, anchor: ChainAnchor) -> RawObservation:
         value, _evidence = self.gateway.get_storage_at(address, slot, hex(anchor.block_number), anchor=anchor)

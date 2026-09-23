@@ -16,6 +16,7 @@ class UnifiedRequest:
     compiler_version: str | None = None
     window_blocks: int = 10_000
     deployer_address: str | None = None
+    scan_profile: str = "paid"
 
 
 @dataclass

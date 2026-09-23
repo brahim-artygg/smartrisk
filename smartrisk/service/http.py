@@ -396,7 +396,8 @@ class ScanHandler(BaseHTTPRequestHandler):
                     scenarios=_load_scenarios(payload["scenarios"]) if payload.get("scenarios") else [],
                     honeypot=_load_honeypot(payload["honeypot"]) if payload.get("honeypot") else None,
                     block_tag=payload.get("block_tag", "safe"), block_number=payload.get("block_number"),
-                    compiler_version=payload.get("compiler_version"), window_blocks=payload.get("window_blocks", 10000),
+                    compiler_version=payload.get("compiler_version"), window_blocks=payload.get("window_blocks", 2000),
+                    scan_profile="free",
                 )
                 try:
                     job = self.service.submit(request, run_id=f"embed_{secrets.token_hex(16)}")
@@ -443,7 +444,8 @@ class ScanHandler(BaseHTTPRequestHandler):
                     scenarios=_load_scenarios(payload["scenarios"]) if payload.get("scenarios") else [],
                     honeypot=_load_honeypot(payload["honeypot"]) if payload.get("honeypot") else None,
                     block_tag=payload.get("block_tag", "safe"), block_number=payload.get("block_number"),
-                    compiler_version=payload.get("compiler_version"), window_blocks=payload.get("window_blocks", 10000),
+                    compiler_version=payload.get("compiler_version"), window_blocks=payload.get("window_blocks", 2000),
+                    scan_profile="free",
                 )
                 # Deliberately public: a scan never requires authentication.
                 self._json(202, self.service.submit(request))
@@ -956,7 +958,7 @@ class ScanHandler(BaseHTTPRequestHandler):
                     offset = max(0, int(query.get("offset", ["0"])[0]))
                     limit = min(int(plan["batch_limit"]), max(1, int(query.get("limit", ["100"])[0])))
                     include_full = query.get("include", ["summary"])[0].lower() == "full"
-                    rows, total, batch = self.developer_api.result_rows(key_meta["user_id"], batch_id, offset, limit, include_full=include_full)
+                    rows, total, batch = self.developer_api.result_rows(key_meta["user_id"], batch_id, offset, limit, include_full=include_full, full_allowed=bool(plan.get("full_results", False)))
                     self._json(200, {"batch": {k: batch[k] for k in ("batch_id","status","total","queued","running","completed","failed","created_at","updated_at")}, "data": rows, "pagination": {"offset": offset, "limit": limit, "total": total, "next_offset": offset + limit if offset + limit < total else None}})
                 except (AuthError, ValueError) as exc:
                     if isinstance(exc, AuthError):
@@ -975,7 +977,7 @@ class ScanHandler(BaseHTTPRequestHandler):
                         return
                     fmt = query.get("format", ["jsonl"])[0].lower()
                     include_full = query.get("include", ["summary"])[0].lower() == "full"
-                    content_type, text = self.developer_api.export(key_meta["user_id"], batch_id, fmt, include_full=include_full)
+                    content_type, text = self.developer_api.export(key_meta["user_id"], batch_id, fmt, include_full=include_full, full_allowed=bool(plan.get("full_results", False)))
                     self._bytes(200, content_type, text.encode(), {"Content-Disposition": f'attachment; filename="{batch_id}.{fmt}"'})
                 except AuthError as exc:
                     self._json(exc.status, {"error": str(exc), "code": exc.code})
@@ -1002,7 +1004,7 @@ class ScanHandler(BaseHTTPRequestHandler):
                     self._json(429, {"error": "Rate limit exceeded.", "code": "RATE_LIMITED", "retry_after": 1}, {"Retry-After": "1"})
                     return
                 include_full = query.get("include", ["summary"])[0].lower() == "full"
-                self._json(200, self.developer_api.single_scan(key_meta["user_id"], scan_job_id, include_full=include_full))
+                self._json(200, self.developer_api.single_scan(key_meta["user_id"], scan_job_id, include_full=include_full, full_allowed=bool(plan.get("full_results", False))))
             except AuthError as exc:
                 self._json(exc.status, {"error": str(exc), "code": exc.code})
             return
@@ -1071,7 +1073,11 @@ class ScanHandler(BaseHTTPRequestHandler):
         if path.startswith("/v1/scans/"):
             job_id = path[len("/v1/scans/"):]
             try:
-                self._json(200, self.service.get(job_id))
+                job = self.service.get(job_id)
+                payload = {"job_id": job["job_id"], "status": job["status"], "progress_stage": job.get("progress_stage"), "progress_percent": job.get("progress_percent", 0), "created_at": job.get("created_at"), "updated_at": job.get("updated_at"), "error": job.get("error"), "poll_after_ms": 1000}
+                if job.get("status") in {"complete", "partial", "unknown"} and job.get("result"):
+                    payload.update(format_public_result(job))
+                self._json(200, payload)
             except KeyError:
                 self._json(404, {"error": "job not found"})
             return

@@ -3,6 +3,8 @@ from __future__ import annotations
 import time
 import threading
 import uuid
+import inspect
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from typing import Any
@@ -10,6 +12,7 @@ from typing import Any
 from ..state_fork.models import HoneypotSequence, SimulationScenario
 from ..unified.engine import UnifiedRiskEngine
 from ..unified.models import UnifiedRequest
+from ..unified.profiles import get_scan_profile
 from .store import JobStore
 
 
@@ -84,12 +87,27 @@ class ScanService:
         if not self.store.claim(job_id):
             return
         started = time.perf_counter()
+        profile = get_scan_profile(request.scan_profile)
+        deadline_at = time.monotonic() + profile.stage_timeout_seconds
+        def on_progress(stage: str, percent: int) -> None:
+            self.store.update_progress(job_id, stage, percent)
         try:
-            report = self.engine.analyze(request, run_id=job_id)
+            kwargs = {"run_id": job_id}
+            try:
+                params = inspect.signature(self.engine.analyze).parameters
+                if "progress_callback" in params or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()):
+                    kwargs["progress_callback"] = on_progress
+                if "deadline_at" in params or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()):
+                    kwargs["deadline_at"] = deadline_at
+            except (TypeError, ValueError):
+                pass
+            report = self.engine.analyze(request, **kwargs)
+            self.store.update_progress(job_id, "complete", 100)
             self.store.update(job_id, report.status, report.to_dict())
             with self._lock:
                 self._metrics["completed"] += 1
         except Exception as exc:
+            self.store.update_progress(job_id, "failed", 100)
             self.store.update(job_id, "failed", error=str(exc))
             with self._lock:
                 self._metrics["failed"] += 1
@@ -128,7 +146,7 @@ class ScanService:
             project=payload.get("project"), chain_id=payload.get("chain_id"), token_address=payload.get("token_address"),
             scenarios=scenarios, honeypot=honeypot, block_tag=payload.get("block_tag", "safe"), block_number=payload.get("block_number"),
             compiler_version=payload.get("compiler_version"), window_blocks=payload.get("window_blocks", 10000),
-            deployer_address=payload.get("deployer_address"),
+            deployer_address=payload.get("deployer_address"), scan_profile=payload.get("scan_profile", "paid"),
         )
 
 

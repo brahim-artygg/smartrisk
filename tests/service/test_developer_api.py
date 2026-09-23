@@ -205,3 +205,17 @@ def test_500_batch_completes_end_to_end(tmp_path):
     usage = api.store.usage("u500", plan)
     assert usage["scans_reserved"] == 500 and usage["scans_completed"] == 500
     api.shutdown(); scan.executor.shutdown(wait=True)
+
+
+def test_full_report_entitlement_is_explicit(tmp_path):
+    store = DeveloperStore(tmp_path / "db.sqlite3")
+    store.ensure_development_subscription("u")
+    _, raw = store.create_key("u", "paid")
+    _, plan = store.authenticate_key(raw)
+    assert plan["full_results"] is True
+    plan["full_results"] = False
+    api = DeveloperAPIService(ScanService(JobStore(tmp_path / "jobs.sqlite3"), FakeEngine(), max_workers=1), store)
+    with pytest.raises(Exception) as exc:
+        api.result_rows("u", "missing", 0, 1, include_full=True, full_allowed=False)
+    assert getattr(exc.value, "code", None) == "FULL_RESULTS_NOT_INCLUDED"
+    api.shutdown()

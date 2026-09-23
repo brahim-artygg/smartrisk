@@ -81,7 +81,7 @@ def format_public_result(job: dict[str, Any], *, base_path: str = "/scan") -> di
         })
 
     return {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "job_id": job.get("job_id"),
         "status": job.get("status"),
         "address": address,
@@ -102,8 +102,8 @@ def format_public_result(job: dict[str, Any], *, base_path: str = "/scan") -> di
             "title": _text(primary.get("title") or primary.get("label"), "No primary detection", 180),
             "explanation": _text(primary.get("explanation") or primary.get("description"), "", 500),
         },
-        "signals": [_public_finding(item) for item in findings[:6]],
-        "risk_dimensions": dimensions[:8],
+        "signals": [_public_finding(item) for item in findings[:5]],
+        "risk_dimensions": dimensions[:6],
         "unknowns_count": len(report.get("unknowns") or []),
-        "full_report_url": f"{base_path}/{job.get('job_id')}",
+        "upgrade_available": True,
     }
