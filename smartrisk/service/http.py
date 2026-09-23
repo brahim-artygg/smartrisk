@@ -1088,7 +1088,10 @@ class ScanHandler(BaseHTTPRequestHandler):
 
 
 def serve(host: str = "127.0.0.1", port: int = 8787, service: ScanService | None = None, auth_service: AuthService | None = None) -> ThreadingHTTPServer:
-    service = service or ScanService(max_workers=max(1, int(os.getenv("SMARTRISK_SCAN_WORKERS", "8"))))
+    service = service or ScanService(
+        max_workers=max(1, int(os.getenv("SMARTRISK_SCAN_WORKERS", "8"))),
+        recover_stale_seconds=max(30, int(os.getenv("SMARTRISK_RECOVER_STALE_SECONDS", "180"))),
+    )
     auth_store_path = os.getenv("SMARTRISK_AUTH_DB", service.store.path)
     ScanHandler.service = service
     ScanHandler.auth_service = auth_service or AuthService(store=AuthStore(auth_store_path))

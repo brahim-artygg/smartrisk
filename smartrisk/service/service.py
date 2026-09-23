@@ -48,10 +48,28 @@ class ScanService:
             self._requests[job_id] = request
             self._metrics["submitted"] += 1
         if asynchronous:
-            self.executor.submit(self._run, job_id, request)
+            try:
+                future = self.executor.submit(self._run, job_id, request)
+                future.add_done_callback(lambda completed: self._record_worker_failure(job_id, completed))
+            except Exception as exc:
+                self.store.update(job_id, "failed", error=f"Scan worker could not be scheduled: {exc}")
+                with self._lock:
+                    self._metrics["failed"] += 1
+                raise
         else:
             self._run(job_id, request)
         return self.store.get(job_id)
+
+    def _record_worker_failure(self, job_id: str, future) -> None:
+        try:
+            error = future.exception()
+        except Exception as exc:
+            error = exc
+        if error is None:
+            return
+        self.store.update(job_id, "failed", error=f"Scan worker failed: {error}")
+        with self._lock:
+            self._metrics["failed"] += 1
 
     def rerun(self, job_id: str, asynchronous: bool = True) -> dict[str, Any]:
         with self._lock:
