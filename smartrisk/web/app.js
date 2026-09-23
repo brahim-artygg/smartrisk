@@ -30,7 +30,7 @@ async function submitScan(tokenAddress) {
 }
 
 async function poll(jobId) {
-  for (let attempt = 0; attempt < 120; attempt += 1) {
+  while (true) {
     await new Promise((resolve) => setTimeout(resolve, 1000));
     const response = await fetch(`/v1/scans/${encodeURIComponent(jobId)}`);
     if (!response.ok) throw new Error('Scan status could not be loaded.');
@@ -40,7 +40,6 @@ async function poll(jobId) {
     }
     statusText.textContent = 'Analyzing contract…';
   }
-  throw new Error('The scan is taking longer than expected.');
 }
 
 form.addEventListener('submit', async (event) => {

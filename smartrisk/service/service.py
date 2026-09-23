@@ -33,9 +33,25 @@ class ScanService:
             self._metrics["recovered"] = len(recovered)
             for record in self.store.list_by_status("pending", limit=1000):
                 try:
-                    self.executor.submit(self._run_from_record, record)
+                    self._schedule(record["job_id"], self._run_from_record, record)
                 except Exception:
                     break
+
+    def _schedule(self, job_id: str, target, *args) -> None:
+        """Dispatch a job and recover if the executor leaves it pending."""
+        self.executor.submit(target, *args)
+        timer = threading.Timer(0.25, self._fallback_schedule, args=(job_id, target, args))
+        timer.daemon = True
+        timer.start()
+
+    def _fallback_schedule(self, job_id: str, target, args) -> None:
+        try:
+            if self.store.get(job_id).get("status") == "pending":
+                target(*args)
+        except Exception:
+            # The normal worker owns error persistence; this guard is only a
+            # second dispatch path and must not affect the HTTP request.
+            return
 
     def submit(self, request: UnifiedRequest, run_id: str | None = None, asynchronous: bool = True) -> dict[str, Any]:
         job_id = run_id or str(uuid.uuid4())
@@ -45,7 +61,7 @@ class ScanService:
             self._requests[job_id] = request
             self._metrics["submitted"] += 1
         if asynchronous:
-            self.executor.submit(self._run, job_id, request)
+            self._schedule(job_id, self._run, job_id, request)
         else:
             self._run(job_id, request)
         return self.store.get(job_id)
