@@ -73,6 +73,7 @@ class IntelligenceAnalyzer:
         deployer_address: str | None = None,
         max_pairs: int = 5,
         max_holder_contract_probes: int = 12,
+        probe_concurrency: int = 4,
     ) -> IntelligenceResult:
         observations: list[RawObservation] = []
         unknowns: list[str] = []
@@ -93,7 +94,7 @@ class IntelligenceAnalyzer:
         analytics = LedgerAnalytics(token_ledger)
         holders = self._holder_intelligence(token_address, token_ledger, analytics, anchor, token_log_count, logs_available=bool(token_logs and not token_logs.error), excluded_addresses=self._pair_addresses(market_observation))
         holder_probe_observations, holder_type_summary = self._probe_holder_types(
-            holders, token_address, anchor, max_holder_contract_probes
+            holders, token_address, anchor, max_holder_contract_probes, probe_concurrency
         )
         holders["holder_types"] = holder_type_summary
         observations.extend(holder_probe_observations)
@@ -532,25 +533,41 @@ class IntelligenceAnalyzer:
             result.append(Feature(feature_id, token_address, value, unit, "smartrisk-intelligence", confidence, coverage, datetime.now(timezone.utc).isoformat(), refs))
         return result
 
-    def _probe_holder_types(self, holders: dict[str, Any], token_address: str, anchor: ChainAnchor, max_probes: int) -> tuple[list[RawObservation], dict[str, Any]]:
+    def _probe_holder_types(
+        self,
+        holders: dict[str, Any],
+        token_address: str,
+        anchor: ChainAnchor,
+        max_probes: int,
+        probe_concurrency: int = 4,
+    ) -> tuple[list[RawObservation], dict[str, Any]]:
         observations: list[RawObservation] = []
         top = holders.get("top_holders", []) if isinstance(holders, dict) else []
         addresses = [str(item.get("address")) for item in top[:max(0, max_probes)] if item.get("address")]
         address_types: dict[str, str] = {}
-        for address in addresses:
-            if address.lower() in BURN_ADDRESSES:
-                address_types[address.lower()] = "burn"
-                continue
-            try:
-                getter = getattr(self.alchemy, "get_code", None)
-                if not callable(getter):
-                    break
-                obs = getter(address, anchor)
-                observations.append(obs)
-                code = str(obs.payload.get("code") or "0x")
-                address_types[address.lower()] = "contract" if code not in {"", "0x", "0X"} else "eoa_or_unknown"
-            except Exception:
-                address_types[address.lower()] = "unknown"
+        getter = getattr(self.alchemy, "get_code", None)
+        if callable(getter):
+            def probe(address: str) -> tuple[str, RawObservation | None, str]:
+                if address.lower() in BURN_ADDRESSES:
+                    return address, None, "burn"
+                try:
+                    obs = getter(address, anchor)
+                    code = str(obs.payload.get("code") or "0x")
+                    kind = "contract" if code not in {"", "0x", "0X"} else "eoa_or_unknown"
+                    return address, obs, kind
+                except Exception:
+                    return address, None, "unknown"
+
+            workers = max(1, min(int(probe_concurrency), len(addresses))) if addresses else 1
+            if workers == 1:
+                results = [probe(address) for address in addresses]
+            else:
+                with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="smartrisk-holder-probe") as executor:
+                    results = list(executor.map(probe, addresses))
+            for address, obs, kind in results:
+                if obs is not None:
+                    observations.append(obs)
+                address_types[address.lower()] = kind
         balances = holders.get("balances", {})
         total = sum(max(0, int(value)) for value in balances.values())
         contract_balance = sum(max(0, int(value)) for address, value in balances.items() if address.lower() in {item for item, kind in address_types.items() if kind == "contract"})

@@ -78,6 +78,14 @@ class UnifiedRiskEngine:
                     rules=self.heuristics.rules,
                     intelligence=self.heuristics.intelligence,
                 )
+            elif heuristic_rpc is not None:
+                # The default client is created before the request profile is known.
+                # Apply the profile limits here so public/free scans cannot inherit
+                # a slow 20-second RPC timeout and multiple retries.
+                if hasattr(heuristic_rpc, "timeout_seconds"):
+                    heuristic_rpc.timeout_seconds = profile.rpc_timeout_seconds
+                if hasattr(heuristic_rpc, "retries"):
+                    heuristic_rpc.retries = profile.rpc_retries
             fork_rpc = getattr(self.fork, "rpc", None)
             if fork_rpc is not None and getattr(fork_rpc, "chain", None) != network.rpc_chain:
                 active_fork = StateForkEngine(
@@ -152,6 +160,7 @@ class UnifiedRiskEngine:
                 "max_holder_contract_probes": profile.max_holder_contract_probes,
                 "rpc_log_concurrency": profile.rpc_log_concurrency,
                 "max_log_chunk_blocks": 1_500,
+                "probe_concurrency": profile.rpc_log_concurrency,
             }
             if request.deployer_address is not None:
                 heuristic_kwargs["deployer_address"] = request.deployer_address
@@ -161,7 +170,7 @@ class UnifiedRiskEngine:
                 # Keep compatibility with injected test/dummy engines that implement the pre-profile API.
                 if "unexpected keyword argument" not in str(exc):
                     raise
-                for key in ("max_pairs", "max_holder_contract_probes", "rpc_log_concurrency", "max_log_chunk_blocks"):
+                for key in ("max_pairs", "max_holder_contract_probes", "rpc_log_concurrency", "max_log_chunk_blocks", "probe_concurrency"):
                     heuristic_kwargs.pop(key, None)
                 heuristic_report = active_heuristics.analyze(request.chain_id, request.token_address, **heuristic_kwargs)
             heuristic_dict = heuristic_report.to_dict()
