@@ -94,8 +94,8 @@ loginForm.addEventListener('submit', async (event) => {
   const email = document.getElementById('login-email').value.trim();
   const password = document.getElementById('login-password').value;
   try {
-    await post('/v1/auth/login', {email, password});
-    window.location.href = '/';
+    const result = await post('/v1/auth/login', {email, password});
+    window.location.href = result.user?.role === 'admin' ? '/admin' : '/';
   } catch (error) {
     showAlert(error.message || 'Login failed.');
   }
@@ -166,6 +166,10 @@ async function loadAccount() {
     const payload = await response.json();
     if (!payload.authenticated) {
       window.location.href = '/auth?mode=login';
+      return;
+    }
+    if (payload.user?.role === 'admin') {
+      window.location.href = '/admin';
       return;
     }
     accountEmail.textContent = payload.user.email + (payload.user.email_verified ? ' · Verified' : '');
