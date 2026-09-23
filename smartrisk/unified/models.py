@@ -14,8 +14,9 @@ class UnifiedRequest:
     block_tag: str = "safe"
     block_number: int | None = None
     compiler_version: str | None = None
-    window_blocks: int = 10_000
+    window_blocks: int = 5_000
     deployer_address: str | None = None
+    timeout_seconds: float | None = None
 
 
 @dataclass

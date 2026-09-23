@@ -63,6 +63,18 @@ class ScanBudget:
         if detail not in self.skipped:
             self.skipped.append(detail)
 
+    def remaining_for(self, fraction: float = 1.0) -> float | None:
+        """Seconds left scaled by ``fraction``; ``None`` means unlimited."""
+        remaining = self.remaining_seconds()
+        if remaining is None:
+            return None
+        return remaining * max(0.0, min(1.0, fraction))
+
 
 def default_scan_timeout_seconds() -> float:
     return float(_env_int("SMARTRISK_SCAN_TIMEOUT_SECONDS", 180))
+
+
+def public_scan_timeout_seconds() -> float:
+    """Timeout for free/public scans; paid API paths may use the full budget."""
+    return float(_env_int("SMARTRISK_PUBLIC_SCAN_TIMEOUT_SECONDS", 60))

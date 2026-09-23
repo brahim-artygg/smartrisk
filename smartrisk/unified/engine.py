@@ -5,6 +5,7 @@ from typing import Any
 
 from ..heuristics.engine import HeuristicsEngine
 from ..core.models import AnalysisJob, SourceBundle, UnifiedAnchor
+from ..core.scan_budget import ScanBudget, default_scan_timeout_seconds
 from ..state_fork.engine import StateForkEngine
 from ..state_fork.alchemy_rpc import AlchemyRpcClient
 from ..core.networks import get_network
@@ -28,6 +29,7 @@ class UnifiedRiskEngine:
 
     def analyze(self, request: UnifiedRequest, run_id: str | None = None) -> UnifiedRiskReport:
         run_id = run_id or str(uuid.uuid4())
+        budget = ScanBudget.from_seconds(request.timeout_seconds if request.timeout_seconds is not None else default_scan_timeout_seconds())
         summaries: list[EngineSummary] = []
         findings: list[dict[str, Any]] = []
         decisions: list[dict[str, Any]] = []
@@ -87,23 +89,43 @@ class UnifiedRiskEngine:
             unknowns.append("static: project not provided")
 
         if request.honeypot:
-            fork_report = active_fork.analyze_honeypot(request.honeypot, run_id=f"{run_id}:fork", block_tag=request.block_tag, block_number=effective_block_number)
-            fork_dict = fork_report.to_dict()
-            fork_score, fork_unknowns = self._fork_score(fork_report)
-            fork_confidence = 0.9 if fork_report.status == "complete" else 0.0
-            fork_coverage = 1.0 if fork_report.status == "complete" else 0.0
-            summaries.append(EngineSummary("state_fork", fork_report.status, fork_score, fork_confidence, fork_coverage, fork_report.unknown_reasons + fork_unknowns, fork_dict))
-            decisions.extend(self._fork_decisions(fork_report))
-            unknowns.extend(f"fork: {reason}" for reason in fork_report.unknown_reasons + fork_unknowns)
+            if budget.expired():
+                budget.note_skipped("state_fork honeypot sequence", "scan time budget exhausted")
+                summaries.append(EngineSummary("state_fork", "unknown", None, 0.0, 0.0, ["skipped: the scan time budget was exhausted before fork simulation"]))
+                unknowns.append("fork: skipped because the scan time budget was exhausted")
+            else:
+                try:
+                    fork_report = active_fork.analyze_honeypot(request.honeypot, run_id=f"{run_id}:fork", block_tag=request.block_tag, block_number=effective_block_number)
+                except Exception as exc:
+                    budget.note_skipped("state_fork honeypot sequence", str(exc))
+                    fork_report = None
+                if fork_report is not None:
+                    fork_dict = fork_report.to_dict()
+                    fork_score, fork_unknowns = self._fork_score(fork_report)
+                    fork_confidence = 0.9 if fork_report.status == "complete" else 0.0
+                    fork_coverage = 1.0 if fork_report.status == "complete" else 0.0
+                    summaries.append(EngineSummary("state_fork", fork_report.status, fork_score, fork_confidence, fork_coverage, fork_report.unknown_reasons + fork_unknowns, fork_dict))
+                    decisions.extend(self._fork_decisions(fork_report))
+                    unknowns.extend(f"fork: {reason}" for reason in fork_report.unknown_reasons + fork_unknowns)
         elif request.scenarios:
-            fork_report = active_fork.analyze(request.scenarios, run_id=f"{run_id}:fork", block_tag=request.block_tag, block_number=effective_block_number)
-            fork_dict = fork_report.to_dict()
-            fork_score, fork_unknowns = self._fork_score(fork_report)
-            fork_confidence = 0.9 if fork_report.status == "complete" else 0.0
-            fork_coverage = 1.0 if fork_report.status == "complete" else 0.0
-            summaries.append(EngineSummary("state_fork", fork_report.status, fork_score, fork_confidence, fork_coverage, fork_report.unknown_reasons + fork_unknowns, fork_dict))
-            decisions.extend(self._fork_decisions(fork_report))
-            unknowns.extend(f"fork: {reason}" for reason in fork_report.unknown_reasons + fork_unknowns)
+            if budget.expired():
+                budget.note_skipped("state_fork scenarios", "scan time budget exhausted")
+                summaries.append(EngineSummary("state_fork", "unknown", None, 0.0, 0.0, ["skipped: the scan time budget was exhausted before fork simulation"]))
+                unknowns.append("fork: skipped because the scan time budget was exhausted")
+            else:
+                try:
+                    fork_report = active_fork.analyze(request.scenarios, run_id=f"{run_id}:fork", block_tag=request.block_tag, block_number=effective_block_number)
+                except Exception as exc:
+                    budget.note_skipped("state_fork scenarios", str(exc))
+                    fork_report = None
+                if fork_report is not None:
+                    fork_dict = fork_report.to_dict()
+                    fork_score, fork_unknowns = self._fork_score(fork_report)
+                    fork_confidence = 0.9 if fork_report.status == "complete" else 0.0
+                    fork_coverage = 1.0 if fork_report.status == "complete" else 0.0
+                    summaries.append(EngineSummary("state_fork", fork_report.status, fork_score, fork_confidence, fork_coverage, fork_report.unknown_reasons + fork_unknowns, fork_dict))
+                    decisions.extend(self._fork_decisions(fork_report))
+                    unknowns.extend(f"fork: {reason}" for reason in fork_report.unknown_reasons + fork_unknowns)
         else:
             summaries.append(EngineSummary("state_fork", "unknown", None, 0.0, 0.0, ["scenarios not provided"]))
             unknowns.append("fork: scenarios not provided")
