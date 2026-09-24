@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import os
 import time
 import threading
 import uuid
 import inspect
-import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from typing import Any
@@ -30,7 +30,11 @@ class ScanService:
         self.executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="smartrisk-scan")
         self._requests: dict[str, UnifiedRequest] = {}
         self._lock = threading.Lock()
-        self._metrics = {"submitted": 0, "completed": 0, "failed": 0, "recovered": 0, "durations_ms": []}
+        self._metrics = {"submitted": 0, "completed": 0, "failed": 0, "recovered": 0, "cache_hits": 0, "durations_ms": []}
+        # Public scans of the same token within the TTL reuse the existing job (finished or still
+        # running), so a popular token costs Alchemy one scan instead of one per visitor.
+        self.cache_ttl_seconds = self._env_seconds("SMARTRISK_SCAN_CACHE_SECONDS", 600)
+        self._scan_cache: dict[tuple, tuple[str, float]] = {}
         if auto_recover:
             recovered = self.store.recover_running(recover_stale_seconds)
             self._metrics["recovered"] = len(recovered)
@@ -40,8 +44,52 @@ class ScanService:
                 except Exception:
                     break
 
+    @staticmethod
+    def _env_seconds(name: str, default: int) -> int:
+        try:
+            return max(0, int(os.getenv(name, default)))
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _cache_key(request: UnifiedRequest) -> tuple | None:
+        """Only plain token scans are shareable; custom projects/scenarios/pinned blocks never are."""
+        if request.project or request.scenarios or request.honeypot or request.block_number is not None:
+            return None
+        if not (request.chain_id and request.token_address):
+            return None
+        return (str(request.chain_id), str(request.token_address).lower(), request.scan_profile, request.block_tag, request.window_blocks, request.deployer_address)
+
+    def _cached_job(self, key: tuple) -> dict[str, Any] | None:
+        with self._lock:
+            entry = self._scan_cache.get(key)
+        if not entry:
+            return None
+        job_id, created = entry
+        if time.monotonic() - created > self.cache_ttl_seconds:
+            return None
+        try:
+            job = self.store.get(job_id)
+        except Exception:
+            return None
+        return job if job.get("status") in {"pending", "running", "complete", "partial"} else None
+
     def submit(self, request: UnifiedRequest, run_id: str | None = None, asynchronous: bool = True) -> dict[str, Any]:
+        # An explicit run_id (embed, rerun, admin) always means "run this exact job now".
+        cache_key = self._cache_key(request) if (run_id is None and asynchronous and self.cache_ttl_seconds > 0) else None
+        if cache_key is not None:
+            cached = self._cached_job(cache_key)
+            if cached is not None:
+                with self._lock:
+                    self._metrics["cache_hits"] += 1
+                return cached
         job_id = run_id or str(uuid.uuid4())
+        if cache_key is not None:
+            with self._lock:
+                self._scan_cache[cache_key] = (job_id, time.monotonic())
+                if len(self._scan_cache) > 2000:
+                    cutoff = time.monotonic() - self.cache_ttl_seconds
+                    self._scan_cache = {k: v for k, v in self._scan_cache.items() if v[1] > cutoff}
         payload = self._serialize_request(request)
         self.store.create(job_id, payload)
         with self._lock:

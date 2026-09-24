@@ -159,7 +159,7 @@ class UnifiedRiskEngine:
                 "max_pairs": profile.max_pairs,
                 "max_holder_contract_probes": profile.max_holder_contract_probes,
                 "rpc_log_concurrency": profile.rpc_log_concurrency,
-                "max_log_chunk_blocks": 500 if profile.name == "free" else 1_000,
+                "max_log_chunk_blocks": 1_000 if profile.name == "free" else 1_500,
                 "probe_concurrency": profile.rpc_log_concurrency,
                 "pair_concurrency": min(2, profile.rpc_log_concurrency),
             }
@@ -211,7 +211,12 @@ class UnifiedRiskEngine:
                     finding["status"] = "confirmed"
                     finding["correlation_id"] = correlation.get("correlation_id")
         hard_verdicts = self._hard_verdicts(summaries, findings, decisions)
-        score, band, confidence, coverage = self._combine(summaries)
+        requested_engines = {"heuristics"}
+        if request.project:
+            requested_engines.add("static_ast")
+        if request.honeypot or request.scenarios:
+            requested_engines.add("state_fork")
+        score, band, confidence, coverage = self._combine(summaries, requested_engines)
         if hard_verdicts:
             score, band = 100.0, "critical"
             confidence = max(confidence, 0.95)
@@ -238,7 +243,8 @@ class UnifiedRiskEngine:
                 correlation["strength"] = "untrusted"
         evidence_graph = self._build_evidence_graph(summaries, findings, evidence, decisions, correlations)
         verdict, verdict_label, primary_detection = self._derive_verdict(
-            hard_verdicts, findings, score, band, status, coverage
+            hard_verdicts, findings, score, band, status, coverage,
+            limited_scope="state_fork" not in requested_engines,
         )
         progress("complete", 100)
         return UnifiedRiskReport(
@@ -267,7 +273,7 @@ class UnifiedRiskEngine:
 
 
     @staticmethod
-    def _derive_verdict(hard_verdicts, findings, score, band, status, coverage):
+    def _derive_verdict(hard_verdicts, findings, score, band, status, coverage, limited_scope=False):
         for verdict in hard_verdicts:
             if verdict.get("verdict_id") == "SELL_BLOCKED_IN_FORK":
                 return (
@@ -300,13 +306,17 @@ class UnifiedRiskEngine:
                 )
         if status == "unknown" or score is None or coverage < 0.50:
             return "UNVERIFIED", "UNVERIFIED", {"type": "insufficient_evidence", "title": "Required scan evidence is unavailable"}
+        scope = "Based on on-chain and market signals only; source review and buy/sell simulation were not part of this scan."
         if band == "critical":
-            return "CRITICAL_RISK", "CRITICAL RISK", {"type": "risk_score", "title": "Critical aggregate risk"}
+            return "CRITICAL_RISK", "CRITICAL RISK", {"type": "risk_score", "title": "Critical aggregate risk", "explanation": scope}
         if band == "high":
-            return "HIGH_RISK", "HIGH RISK", {"type": "risk_score", "title": "High aggregate risk"}
+            return "HIGH_RISK", "HIGH RISK", {"type": "risk_score", "title": "High aggregate risk", "explanation": scope}
         if band == "medium":
-            return "MEDIUM_RISK", "MEDIUM RISK", {"type": "risk_score", "title": "Medium aggregate risk"}
-        return "LOW_RISK", "LOW RISK", {"type": "risk_score", "title": "No high-severity risk detected by the evaluated controls"}
+            return "MEDIUM_RISK", "MEDIUM RISK", {"type": "risk_score", "title": "Medium aggregate risk", "explanation": scope}
+        if limited_scope:
+            # No buy/sell simulation ran, so "low risk" would over-claim: a honeypot can look clean on-chain.
+            return "NO_MAJOR_SIGNALS", "NO MAJOR SIGNALS (LIMITED CHECK)", {"type": "risk_score", "title": "No major on-chain or market red flags found", "explanation": scope + " This is not a guarantee the token can be sold."}
+        return "LOW_RISK", "LOW RISK", {"type": "risk_score", "title": "No high-severity risk detected by the evaluated controls", "explanation": scope}
 
     @staticmethod
     def _build_evidence_graph(summaries, findings, evidence, decisions, correlations):
@@ -564,14 +574,19 @@ class UnifiedRiskEngine:
         return decisions
 
     @staticmethod
-    def _combine(summaries):
+    def _combine(summaries, requested=None):
         available = [summary for summary in summaries if summary.score is not None]
         if not available:
             return None, "unknown", 0.0, 0.0
         weights = {"static_ast": 0.30, "state_fork": 0.40, "heuristics": 0.30}
         denominator = sum(weights.get(summary.name, 0.0) for summary in available)
         score = sum(summary.score * weights.get(summary.name, 0.0) for summary in available) / denominator
-        coverage = sum(summary.coverage * weights.get(summary.name, 0.0) for summary in summaries) / sum(weights.values())
+        # Coverage is judged against the engines the scan actually asked for. A free public
+        # scan requests heuristics only; counting the never-requested static/fork engines as
+        # 0% coverage capped every free scan at ~0.29 and forced the verdict to UNVERIFIED.
+        scoped = [summary for summary in summaries if requested is None or summary.name in requested]
+        scoped_total = sum(weights.get(summary.name, 0.0) for summary in scoped) or sum(weights.values())
+        coverage = sum(summary.coverage * weights.get(summary.name, 0.0) for summary in scoped) / scoped_total
         confidence = sum(summary.confidence * weights.get(summary.name, 0.0) for summary in available) / denominator
         band = "critical" if score >= 70 else "high" if score >= 45 else "medium" if score >= 20 else "low"
         return round(score, 2), band, round(confidence, 3), round(coverage, 3)

@@ -18,7 +18,7 @@ class ScanProfile:
 FREE_PROFILE = ScanProfile(
     name="free",
     window_blocks=2_000,
-    max_pairs=2,
+    max_pairs=1,
     max_holder_contract_probes=4,
     rpc_log_concurrency=1,
     rpc_timeout_seconds=8.0,

@@ -90,6 +90,9 @@ class HeuristicsEngine:
             except TypeError:
                 logs = active_alchemy.get_logs(token_address, anchor, max(0, anchor.block_number - window_blocks), anchor.block_number)
             observations.append(logs)
+            payload = getattr(logs, "payload", None)
+            if isinstance(payload, dict) and payload.get("truncated"):
+                diagnostics.append("token transfer history was capped for this busy token; holder/history metrics reflect the most recent activity only")
         except Exception as exc:
             diagnostics.append(f"Alchemy logs lookup failed: {exc}")
 

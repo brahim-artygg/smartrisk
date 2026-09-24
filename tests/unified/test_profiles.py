@@ -4,7 +4,7 @@ from smartrisk.unified.profiles import FREE_PROFILE, PAID_PROFILE, clamp_window,
 
 def test_profiles_have_expected_limits():
     assert FREE_PROFILE.window_blocks == 2000
-    assert FREE_PROFILE.max_pairs == 2
+    assert FREE_PROFILE.max_pairs == 1
     assert FREE_PROFILE.max_holder_contract_probes == 4
     assert PAID_PROFILE.window_blocks == 10000
     assert PAID_PROFILE.max_pairs == 5

@@ -80,6 +80,7 @@ class ScanHandler(BaseHTTPRequestHandler):
     auth_limiter = RateLimiter(int(os.getenv("SMARTRISK_AUTH_RATE_LIMIT", "8")), 900)
     embed_limiter = RateLimiter(int(os.getenv("SMARTRISK_EMBED_RATE_LIMIT", "5")), int(os.getenv("SMARTRISK_EMBED_RATE_WINDOW", "3600")))
     embed_partner_limiter = KeyRateLimiter(60.0)
+    public_scan_limiter = RateLimiter(int(os.getenv("SMARTRISK_PUBLIC_SCAN_RATE_LIMIT", "30")), int(os.getenv("SMARTRISK_PUBLIC_SCAN_RATE_WINDOW", "3600")))
     embed_token_secret = os.getenv("SMARTRISK_EMBED_TOKEN_SECRET") or os.getenv("SMARTRISK_ADMIN_CSRF_SECRET") or secrets.token_hex(32)
     secure_cookie = os.getenv("SMARTRISK_SECURE_COOKIE", "").lower() in {"1", "true", "yes", "on"} or os.getenv("APP_BASE_URL", "").startswith("https://")
 
@@ -173,6 +174,13 @@ class ScanHandler(BaseHTTPRequestHandler):
 
     def _client_key(self, action: str) -> str:
         return f"{action}:{self.client_address[0]}"
+
+    def _public_client_key(self, action: str) -> str:
+        # Behind Railway's proxy every socket peer is the proxy, so a limiter keyed on it is one
+        # global bucket. Prefer the address the proxy reports for the real client.
+        real = (self.headers.get("X-Real-IP") or "").strip()
+        forwarded = (self.headers.get("X-Forwarded-For") or "").split(",")[-1].strip()
+        return f"{action}:{real or forwarded or self.client_address[0]}"
 
     def _session_user(self):
         return self.auth_service.session_user(parse_cookie(self.headers.get("Cookie"), "smartrisk_session"))
@@ -434,17 +442,20 @@ class ScanHandler(BaseHTTPRequestHandler):
                 self._json(503, {"error": "Public scanning is temporarily unavailable.", "code": "PUBLIC_SCANS_DISABLED"})
                 return
             try:
+                if not self.public_scan_limiter.allow(self._public_client_key("public_scan")):
+                    self._json(429, {"error": "Too many scans from this address. Please try again later.", "code": "RATE_LIMITED"})
+                    return
                 payload = self._body()
                 token_address = payload.get("token_address")
                 chain_id = payload.get("chain_id")
                 if not chain_id:
                     chain_id = resolve_network(token_address).chain_id
+                # Anonymous callers get the plain free scan only. `project` (a server-side path),
+                # `scenarios`, `honeypot` and a pinned block would run the static/Anvil-fork engines,
+                # which are paid features and by far the most expensive Alchemy consumers.
                 request = UnifiedRequest(
-                    project=payload.get("project"), chain_id=chain_id, token_address=token_address,
-                    scenarios=_load_scenarios(payload["scenarios"]) if payload.get("scenarios") else [],
-                    honeypot=_load_honeypot(payload["honeypot"]) if payload.get("honeypot") else None,
-                    block_tag=payload.get("block_tag", "safe"), block_number=payload.get("block_number"),
-                    compiler_version=payload.get("compiler_version"), window_blocks=payload.get("window_blocks", 2000),
+                    chain_id=chain_id, token_address=token_address,
+                    block_tag="safe", window_blocks=payload.get("window_blocks", 2000),
                     scan_profile="free",
                 )
                 # Deliberately public: a scan never requires authentication.

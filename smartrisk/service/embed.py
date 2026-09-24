@@ -16,6 +16,37 @@ _DIMENSION_LABELS = {
     "historical_behavior": "Historical Behavior",
 }
 
+# Curated, non-sensitive measurements that the free report may show. The public
+# envelope used to drop every feature, so the results page could only ever render
+# "Not verified" for a clean token. Only scalar values from this allow-list leave the server.
+_PUBLIC_METRICS = (
+    "chain.token_has_code",
+    "market.best_liquidity_usd", "market.pair_count", "market.volume_h24_usd",
+    "market.buys_h24", "market.sells_h24", "market.pair_age_hours",
+    "liquidity.pair_count_analyzed", "liquidity.max_lp_top1_share", "liquidity.max_lp_burned_share",
+    "holders.holder_count", "holders.top10_concentration", "holders.top20_concentration",
+    "holders.deployer_candidate_share",
+    "history.transfer_count", "history.unique_buyers", "history.unique_sellers",
+    "contract.owner_observed", "contract.admin_observed", "contract.proxy_detected",
+)
+
+
+def _public_metrics(report: dict[str, Any]) -> dict[str, Any]:
+    metrics: dict[str, Any] = {}
+    for engine in report.get("engines") or []:
+        if not isinstance(engine, dict) or engine.get("name") != "heuristics":
+            continue
+        features = ((engine.get("report") or {}).get("risk") or {}).get("features") or []
+        for item in features:
+            if not isinstance(item, dict):
+                continue
+            feature_id = item.get("feature_id")
+            value = item.get("value")
+            if feature_id in _PUBLIC_METRICS and value is not None and isinstance(value, (bool, int, float)):
+                metrics[feature_id] = value
+    return metrics
+
+
 _SEVERITY_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
 
 
@@ -114,6 +145,7 @@ def format_public_result(job: dict[str, Any], *, base_path: str = "/scan") -> di
             "title": _text(primary.get("title") or primary.get("label"), "No primary detection", 180),
             "explanation": _text(primary.get("explanation") or primary.get("description"), "", 500),
         },
+        "metrics": _public_metrics(report),
         "signals": [_public_finding(item) for item in findings[:5]],
         "risk_dimensions": dimensions[:6],
         "engine_statuses": engine_statuses[:6],

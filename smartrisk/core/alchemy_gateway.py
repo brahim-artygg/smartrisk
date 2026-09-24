@@ -5,6 +5,7 @@ import json
 import time
 import threading
 import uuid
+from collections import deque
 from typing import Any
 
 from ..state_fork.alchemy_rpc import AlchemyRpcClient
@@ -25,7 +26,8 @@ class AlchemyGateway:
         self.request_count = 0
         self._cache: dict[str, tuple[float, Any, RawAlchemyEvidence]] = {}
         self._lock = threading.RLock()
-        self.evidence: list[RawAlchemyEvidence] = []
+        # Bounded: this gateway is long-lived; an unbounded list retained every raw response forever.
+        self.evidence: deque[RawAlchemyEvidence] = deque(maxlen=512)
         self.rate_limit_events = 0
         self.trace_calls = 0
         self.trace_successes = 0
@@ -53,12 +55,17 @@ class AlchemyGateway:
             result = self.rpc.request(method, params)
             if method in {"debug_traceTransaction", "trace_transaction", "debug_traceCall"}:
                 self.trace_successes += 1
-            evidence = RawAlchemyEvidence.create(method, request_id, params, result, provider=getattr(self.rpc, "last_provider", getattr(self.rpc, "provider_name", "alchemy")), chain_id=getattr(anchor, "chain_id", None), block_number=getattr(anchor, "block_number", None), block_hash=getattr(anchor, "block_hash", None), latency_ms=round((time.perf_counter() - started) * 1000, 3))
-            with self._lock:
-                self._cache[key] = (time.time(), result, evidence)
-                if len(self._cache) > self.max_cache_entries:
-                    oldest_key = min(self._cache, key=lambda item: self._cache[item][0])
-                    self._cache.pop(oldest_key, None)
+            # Large log payloads are summarised in evidence and not cached: keeping every raw
+            # eth_getLogs response in memory is what OOM-kills the container on busy tokens.
+            bulky = method == "eth_getLogs" and isinstance(result, list) and len(result) > 100
+            stored = {"summarized": True, "log_count": len(result)} if bulky else result
+            evidence = RawAlchemyEvidence.create(method, request_id, params, stored, provider=getattr(self.rpc, "last_provider", getattr(self.rpc, "provider_name", "alchemy")), chain_id=getattr(anchor, "chain_id", None), block_number=getattr(anchor, "block_number", None), block_hash=getattr(anchor, "block_hash", None), latency_ms=round((time.perf_counter() - started) * 1000, 3))
+            if not bulky:
+                with self._lock:
+                    self._cache[key] = (time.time(), result, evidence)
+                    if len(self._cache) > self.max_cache_entries:
+                        oldest_key = min(self._cache, key=lambda item: self._cache[item][0])
+                        self._cache.pop(oldest_key, None)
             self.evidence.append(evidence)
             if self.evidence_store is not None:
                 self.evidence_store.put(evidence)

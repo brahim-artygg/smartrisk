@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import re
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Any
@@ -7,6 +10,34 @@ from typing import Any
 from ..core.alchemy_gateway import AlchemyGateway
 from ..state_fork.alchemy_rpc import AlchemyRpcClient, AlchemyRpcError
 from .models import ChainAnchor, RawObservation
+
+
+class _LogBudget:
+    """Shared, thread-safe limits for one log read (busy tokens must not exhaust memory or CU)."""
+
+    def __init__(self, max_logs: int, max_calls: int):
+        self.max_logs, self.max_calls = max_logs, max_calls
+        self.total = 0
+        self.calls = 0
+        self.truncated = False
+        self.reason: str | None = None
+        self._lock = threading.Lock()
+
+    def exhausted(self) -> bool:
+        with self._lock:
+            if self.total >= self.max_logs:
+                self.truncated, self.reason = True, self.reason or "max_logs"
+            elif self.calls >= self.max_calls:
+                self.truncated, self.reason = True, self.reason or "max_calls"
+            return self.truncated
+
+    def count_call(self) -> None:
+        with self._lock:
+            self.calls += 1
+
+    def add_logs(self, n: int) -> None:
+        with self._lock:
+            self.total += n
 
 
 class AlchemySource:
@@ -67,41 +98,59 @@ class AlchemySource:
             return self._observation("eth_getLogs", address, {"logs": [], "fromBlock": from_block, "toBlock": to_block, "chunks": 0}, anchor)
 
         size = max(1, int(max_chunk_blocks))
+        # Newest -> oldest, so a truncated read keeps the most recent activity.
         ranges = []
-        start = from_block
-        while start <= to_block:
-            end = min(to_block, start + size - 1)
+        end = to_block
+        while end >= from_block:
+            start = max(from_block, end - size + 1)
             ranges.append((start, end))
-            start = end + 1
+            end = start - 1
 
-        results: dict[int, list[dict[str, Any]]] = {}
-        max_workers = max(1, min(int(concurrency), len(ranges)))
-        if max_workers == 1:
-            for idx, (start, end) in enumerate(ranges):
-                results[idx] = self._get_logs_chunk(address, start, end, min_chunk=1, anchor=anchor, topic0=topic0)
-        else:
-            with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="smartrisk-rpc-logs") as executor:
-                futures = {
-                    executor.submit(self._get_logs_chunk, address, start, end, 1, anchor, topic0): idx
-                    for idx, (start, end) in enumerate(ranges)
-                }
-                for future in as_completed(futures):
-                    results[futures[future]] = future.result()
-
+        budget = _LogBudget(
+            max_logs=self._env_int("SMARTRISK_LOG_MAX_LOGS", 30_000),
+            max_calls=self._env_int("SMARTRISK_LOG_MAX_CALLS", 150),
+        )
+        workers = max(1, min(int(concurrency), len(ranges)))
         chunks: list[dict[str, Any]] = []
-        for idx in range(len(ranges)):
-            chunks.extend(results.get(idx, []))
+        done = 0
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="smartrisk-rpc-logs") as executor:
+            for i in range(0, len(ranges), workers):
+                if budget.exhausted():
+                    break
+                batch = ranges[i:i + workers]
+                if workers == 1:
+                    parts = [self._get_logs_chunk(address, a, b, 1, anchor, topic0, budget) for a, b in batch]
+                else:
+                    parts = list(executor.map(lambda r: self._get_logs_chunk(address, r[0], r[1], 1, anchor, topic0, budget), batch))
+                for part in parts:
+                    chunks.extend(part)
+                done += len(batch)
+        if len(chunks) > budget.max_logs:
+            chunks = chunks[: budget.max_logs]
+        truncated = budget.truncated or done < len(ranges)
         return self._observation(
             "eth_getLogs", address,
             {
                 "logs": chunks,
                 "fromBlock": from_block,
                 "toBlock": to_block,
-                "chunks": len(ranges),
+                "chunks": done,
                 "topic0": topic0,
+                "rpc_calls": budget.calls,
+                "truncated": truncated,
+                "truncation_reason": budget.reason or ("max_logs/max_calls" if truncated else None),
             },
             anchor,
         )
+
+    @staticmethod
+    def _env_int(name: str, default: int) -> int:
+        try:
+            return max(1, int(os.getenv(name, default)))
+        except (TypeError, ValueError):
+            return default
+
+    _BLOCK_LIMIT_RE = re.compile(r"up to an? (\d+)\s*block range", re.IGNORECASE)
 
     def _get_logs_chunk(
         self,
@@ -111,27 +160,46 @@ class AlchemySource:
         min_chunk: int = 1,
         anchor: ChainAnchor | None = None,
         topic0: str | None = None,
+        budget: "_LogBudget | None" = None,
     ) -> list[dict[str, Any]]:
+        if budget is not None and budget.exhausted():
+            return []
         params = {"address": address, "fromBlock": hex(from_block), "toBlock": hex(to_block)}
         if topic0:
             params["topics"] = [topic0]
         try:
+            if budget is not None:
+                budget.count_call()
             result, _evidence = self.gateway.get_logs(params, anchor=anchor, fresh=False)
-            return [item for item in (result or []) if isinstance(item, dict)]
+            items = [item for item in (result or []) if isinstance(item, dict)]
+            if budget is not None:
+                budget.add_logs(len(items))
+            return items
         except Exception as exc:
             if from_block >= to_block or (to_block - from_block + 1) <= min_chunk:
                 raise
             # A rate-limit or transport failure is not a provider range-limit
             # error. Splitting it recursively multiplies requests and makes a
             # 429 storm worse; let the paced provider retry the same request.
-            # Only split errors that look like an oversized getLogs query.
-            # The generic provider error text is retained in the raised error.
             if "429" in str(exc) or "rate limit" in str(exc).lower():
                 raise
+            # Providers state their hard range limit (Alchemy free tier: 10 blocks). Use it
+            # directly instead of bisecting through ~2,500 doomed requests.
+            match = self._BLOCK_LIMIT_RE.search(str(exc))
+            if match:
+                limit = max(1, int(match.group(1)))
+                if (to_block - from_block + 1) > limit:
+                    out: list[dict[str, Any]] = []
+                    end = to_block  # newest first
+                    while end >= from_block and not (budget is not None and budget.exhausted()):
+                        start = max(from_block, end - limit + 1)
+                        out.extend(self._get_logs_chunk(address, start, end, limit, anchor, topic0, budget))
+                        end = start - 1
+                    return out
             midpoint = (from_block + to_block) // 2
-            left = self._get_logs_chunk(address, from_block, midpoint, min_chunk, anchor, topic0)
-            right = self._get_logs_chunk(address, midpoint + 1, to_block, min_chunk, anchor, topic0)
-            return left + right
+            right = self._get_logs_chunk(address, midpoint + 1, to_block, min_chunk, anchor, topic0, budget)
+            left = self._get_logs_chunk(address, from_block, midpoint, min_chunk, anchor, topic0, budget)
+            return right + left
 
     def get_storage_at(self, address: str, slot: str, anchor: ChainAnchor) -> RawObservation:
         value, _evidence = self.gateway.get_storage_at(address, slot, hex(anchor.block_number), anchor=anchor)
