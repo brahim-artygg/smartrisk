@@ -13,12 +13,15 @@ def test_public_scan_payload_is_renderable_by_report_page():
             "verdict": {"code": "UNVERIFIED", "label": "UNVERIFIED"},
             "risk_dimensions": {},
             "unknowns": ["provider unavailable"],
+            "engines": [{"name": "heuristics", "status": "partial", "coverage": 0.2, "confidence": 0.4, "unknowns": ["RPC timeout"]}],
         },
     }
     payload = format_public_result(job)
     assert payload["risk"]
     assert payload["verdict"]
     assert payload["status"] == "unknown"
+    assert payload["engine_statuses"][0]["status"] == "partial"
+    assert payload["unknowns"] == ["provider unavailable"]
     assert "result" not in payload
 
     script = Path("smartrisk/web/results.js").read_text(encoding="utf-8")

@@ -64,6 +64,18 @@ def format_public_result(job: dict[str, Any], *, base_path: str = "/scan") -> di
 
     findings = [item for item in (report.get("findings") or []) if isinstance(item, dict)]
     findings.sort(key=lambda item: _SEVERITY_RANK.get(str(item.get("severity") or "").lower(), 9))
+    engine_statuses = []
+    for engine in report.get("engines") or []:
+        if not isinstance(engine, dict):
+            continue
+        engine_statuses.append({
+            "name": _text(engine.get("name"), "unknown", 60),
+            "status": _text(engine.get("status"), "unknown", 30).lower(),
+            "coverage": engine.get("coverage"),
+            "confidence": engine.get("confidence"),
+            "unknowns_count": len(engine.get("unknowns") or []),
+        })
+    unknowns = [_text(item, "Unknown evidence", 240) for item in (report.get("unknowns") or [])]
 
     dimensions: list[dict[str, Any]] = []
     for key, value in (report.get("risk_dimensions") or {}).items():
@@ -104,6 +116,8 @@ def format_public_result(job: dict[str, Any], *, base_path: str = "/scan") -> di
         },
         "signals": [_public_finding(item) for item in findings[:5]],
         "risk_dimensions": dimensions[:6],
-        "unknowns_count": len(report.get("unknowns") or []),
+        "engine_statuses": engine_statuses[:6],
+        "unknowns": unknowns[:8],
+        "unknowns_count": len(unknowns),
         "upgrade_available": True,
     }
