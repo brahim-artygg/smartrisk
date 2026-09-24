@@ -159,7 +159,7 @@ class UnifiedRiskEngine:
                 "max_pairs": profile.max_pairs,
                 "max_holder_contract_probes": profile.max_holder_contract_probes,
                 "rpc_log_concurrency": profile.rpc_log_concurrency,
-                "max_log_chunk_blocks": 1_500,
+                "max_log_chunk_blocks": 500 if profile.name == "free" else 1_000,
                 "probe_concurrency": profile.rpc_log_concurrency,
                 "pair_concurrency": min(2, profile.rpc_log_concurrency),
             }

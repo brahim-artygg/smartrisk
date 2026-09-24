@@ -118,8 +118,15 @@ class AlchemySource:
         try:
             result, _evidence = self.gateway.get_logs(params, anchor=anchor, fresh=False)
             return [item for item in (result or []) if isinstance(item, dict)]
-        except Exception:
+        except Exception as exc:
             if from_block >= to_block or (to_block - from_block + 1) <= min_chunk:
+                raise
+            # A rate-limit or transport failure is not a provider range-limit
+            # error. Splitting it recursively multiplies requests and makes a
+            # 429 storm worse; let the paced provider retry the same request.
+            # Only split errors that look like an oversized getLogs query.
+            # The generic provider error text is retained in the raised error.
+            if "429" in str(exc) or "rate limit" in str(exc).lower():
                 raise
             midpoint = (from_block + to_block) // 2
             left = self._get_logs_chunk(address, from_block, midpoint, min_chunk, anchor, topic0)

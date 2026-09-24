@@ -71,6 +71,9 @@ class JsonRpcHttpProvider:
         self.retries = max(0, retries)
         self.rpc_url = spec.rpc_url
         self.provider_name = spec.name
+        self._pace_lock = threading.Lock()
+        self._next_request_at = 0.0
+        self._min_interval = max(0.0, float(os.getenv("SMARTRISK_RPC_MIN_INTERVAL_MS", "150")) / 1000.0)
 
     def request(self, method: str, params: list[Any] | None = None) -> Any:
         body = json.dumps(
@@ -86,6 +89,11 @@ class JsonRpcHttpProvider:
         last_error: Exception | None = None
         for attempt in range(self.retries + 1):
             try:
+                with self._pace_lock:
+                    wait = self._next_request_at - time.monotonic()
+                    if wait > 0:
+                        time.sleep(wait)
+                    self._next_request_at = time.monotonic() + self._min_interval
                 with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
                     payload = json.loads(response.read().decode("utf-8"))
                 if payload.get("error"):
@@ -98,7 +106,8 @@ class JsonRpcHttpProvider:
                 if isinstance(exc, ProviderError) and not MultiProviderRpc.is_retryable_error(exc):
                     raise
                 if attempt < self.retries:
-                    time.sleep(min(0.2 * (2**attempt) + random.random() * 0.05, 1.5))
+                    delay = 1.0 if "429" in str(exc) or "rate limit" in str(exc).lower() else 0.2
+                    time.sleep(min(delay * (2**attempt) + random.random() * 0.05, 4.0))
         raise ProviderUnavailable(f"{self.provider_name}: {method} failed after retries: {last_error}")
 
 

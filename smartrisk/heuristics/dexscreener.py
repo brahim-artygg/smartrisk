@@ -54,6 +54,10 @@ class DexscreenerClient:
                 request = urllib.request.Request(url, headers={"Accept": "application/json", "User-Agent": "smartrisk-heuristics/0.1"})
                 with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
                     payload = json.loads(response.read().decode("utf-8"))
+                if isinstance(payload, list):
+                    # Some Dexscreener edge/cache responses return the pair
+                    # collection directly rather than {"pairs": [...] }.
+                    payload = {"pairs": payload}
                 if not isinstance(payload, dict):
                     raise DexscreenerError("Dexscreener response is not an object")
                 self._cache[path] = (now, payload)
