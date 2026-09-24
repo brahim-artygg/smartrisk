@@ -124,26 +124,21 @@ class AlchemyRpcClient:
         if not self.rpc_url:
             capabilities["status"] = "unavailable"
             return capabilities
-        checks = {
-            "chain_id": ("eth_chainId", []),
-            "latest_block": ("eth_getBlockByNumber", ["latest", False]),
-            "finalized_block": ("eth_getBlockByNumber", ["finalized", False]),
-            "safe_block": ("eth_getBlockByNumber", ["safe", False]),
-        }
-        for name, (method, params) in checks.items():
-            try:
-                result = self.request(method, params)
-                capabilities[name] = {"available": result is not None}
-                if name == "chain_id" and result is not None:
-                    actual = int(str(result), 16) if isinstance(result, str) and str(result).lower().startswith("0x") else int(result)
-                    capabilities[name]["actual_chain_id"] = str(actual)
-                    if actual != int(self.expected_chain_id):
-                        capabilities[name]["available"] = False
-                        capabilities[name]["error"] = f"provider chain {actual} does not match expected chain {self.expected_chain_id}"
-                if name == "finalized_block":
-                    capabilities[name]["block_number"] = result.get("number") if result else None
-            except AlchemyRpcError as exc:
-                capabilities[name] = {"available": False, "error": str(exc)}
+        # This is a readiness check, not a feature benchmark. Probing latest,
+        # finalized and safe here consumed three additional quota units before
+        # the real scan even started and made a rate-limited Alchemy key look
+        # unavailable. The scan itself probes the selected anchor as needed.
+        try:
+            result = self.request("eth_chainId", [])
+            capabilities["chain_id"] = {"available": result is not None}
+            if result is not None:
+                actual = int(str(result), 16) if isinstance(result, str) and str(result).lower().startswith("0x") else int(result)
+                capabilities["chain_id"]["actual_chain_id"] = str(actual)
+                if actual != int(self.expected_chain_id):
+                    capabilities["chain_id"]["available"] = False
+                    capabilities["chain_id"]["error"] = f"provider chain {actual} does not match expected chain {self.expected_chain_id}"
+        except AlchemyRpcError as exc:
+            capabilities["chain_id"] = {"available": False, "error": str(exc)}
         capabilities["status"] = "ready" if capabilities.get("chain_id", {}).get("available") else "unavailable"
         return capabilities
 

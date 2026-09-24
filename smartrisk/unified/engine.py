@@ -161,6 +161,7 @@ class UnifiedRiskEngine:
                 "rpc_log_concurrency": profile.rpc_log_concurrency,
                 "max_log_chunk_blocks": 1_500,
                 "probe_concurrency": profile.rpc_log_concurrency,
+                "pair_concurrency": min(2, profile.rpc_log_concurrency),
             }
             if request.deployer_address is not None:
                 heuristic_kwargs["deployer_address"] = request.deployer_address
@@ -170,7 +171,7 @@ class UnifiedRiskEngine:
                 # Keep compatibility with injected test/dummy engines that implement the pre-profile API.
                 if "unexpected keyword argument" not in str(exc):
                     raise
-                for key in ("max_pairs", "max_holder_contract_probes", "rpc_log_concurrency", "max_log_chunk_blocks", "probe_concurrency"):
+                for key in ("max_pairs", "max_holder_contract_probes", "rpc_log_concurrency", "max_log_chunk_blocks", "probe_concurrency", "pair_concurrency"):
                     heuristic_kwargs.pop(key, None)
                 heuristic_report = active_heuristics.analyze(request.chain_id, request.token_address, **heuristic_kwargs)
             heuristic_dict = heuristic_report.to_dict()

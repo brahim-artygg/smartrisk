@@ -61,6 +61,12 @@ function stateForkSummary(report) {
   return first(report?.engines, item => item?.name === 'state_fork');
 }
 
+function publicSignals(report) {
+  if (Array.isArray(report?.signals)) return report.signals;
+  if (Array.isArray(report?.findings)) return report.findings;
+  return [];
+}
+
 function featureText(value, unit) {
   if (value === undefined || value === null || value === '') return 'Not verified';
   if (unit === 'ratio') return `${(Number(value) * 100).toFixed(1)}%`;
@@ -314,15 +320,17 @@ async function loadResult() {
   // /v1/scans/:id intentionally returns the public report envelope directly
   // (risk, verdict, signals, dimensions). It does not expose the internal
   // persisted `result` object. Keep the page contract aligned with that API.
-  if (!job.risk || !job.verdict) {
+  const report = job.result || job;
+  if (!report.risk || !report.verdict) {
     showError('This scan does not contain a completed report yet.');
     return;
   }
   window.__scanRequest = {
-    token_address: job.address,
-    chain_id: job.chain_id,
+    ...(job.request || {}),
+    token_address: job.request?.token_address || job.address,
+    chain_id: job.request?.chain_id || job.chain_id,
   };
-  renderOverview(job);
+  renderOverview(report);
 }
 
 document.querySelectorAll('.module-card').forEach(button => {

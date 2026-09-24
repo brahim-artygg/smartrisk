@@ -21,7 +21,15 @@ class AlchemySource:
 
     def anchor(self, tag: str = "safe", block_number: int | None = None) -> ChainAnchor:
         tag_value = hex(block_number) if block_number is not None else tag
-        value, _evidence = self.gateway.get_block_by_number(tag_value, False, fresh=True)
+        try:
+            value, _evidence = self.gateway.get_block_by_number(tag_value, False, fresh=True)
+        except Exception:
+            # Some RPC plans do not expose safe/finalized, and a transient 429
+            # on that optional tag must not discard an otherwise valid scan.
+            if block_number is not None or tag_value == "latest":
+                raise
+            value, _evidence = self.gateway.get_block_by_number("latest", False, fresh=True)
+            tag = "latest"
         if not isinstance(value, dict) or not value.get("number") or not value.get("hash"):
             raise AlchemyRpcError(f"Alchemy returned an invalid {tag_value} block")
         chain_id, _chain_ev = self.gateway.call("eth_chainId", [], anchor=None, use_cache=True)

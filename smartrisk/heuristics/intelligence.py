@@ -74,6 +74,8 @@ class IntelligenceAnalyzer:
         max_pairs: int = 5,
         max_holder_contract_probes: int = 12,
         probe_concurrency: int = 4,
+        pair_concurrency: int = 2,
+        log_concurrency: int = 2,
     ) -> IntelligenceResult:
         observations: list[RawObservation] = []
         unknowns: list[str] = []
@@ -116,11 +118,11 @@ class IntelligenceAnalyzer:
         def analyze_pair(item: dict[str, Any]):
             pair_address = str(item.get("pairAddress") or "")
             return pair_address, self._analyze_pair_lp(
-                chain_id, token_address, pair_address, anchor, window_blocks, holders.get("deployer_candidates", []), deployer_address
+                chain_id, token_address, pair_address, anchor, window_blocks,
+                holders.get("deployer_candidates", []), deployer_address, log_concurrency
             )
 
-        rpc = getattr(self.alchemy, "rpc", None)
-        workers = max(1, min(len(selected_pairs), int(getattr(rpc, "rpc_log_concurrency", 3)))) if selected_pairs else 1
+        workers = max(1, min(len(selected_pairs), int(pair_concurrency))) if selected_pairs else 1
         if len(selected_pairs) > 1:
             with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="smartrisk-lp") as executor:
                 futures = {executor.submit(analyze_pair, pair): pair for pair in selected_pairs}
@@ -287,6 +289,7 @@ class IntelligenceAnalyzer:
         window_blocks: int,
         deployer_candidates: list[str],
         deployer_address: str | None,
+        log_concurrency: int = 2,
     ) -> tuple[dict[str, Any], list[RawObservation], list[str]]:
         observations: list[RawObservation] = []
         unknowns: list[str] = []
@@ -314,7 +317,7 @@ class IntelligenceAnalyzer:
         try:
             getter = getattr(self.alchemy, "get_logs", None)
             if callable(getter):
-                lp_logs = getter(pair_address, anchor, from_block, anchor.block_number)
+                lp_logs = getter(pair_address, anchor, from_block, anchor.block_number, concurrency=max(1, min(int(log_concurrency), 2)))
                 observations.append(lp_logs)
         except Exception as exc:
             unknowns.append(f"LP transfer history unavailable for {pair_address}: {exc}")

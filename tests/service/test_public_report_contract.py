@@ -22,5 +22,5 @@ def test_public_scan_payload_is_renderable_by_report_page():
     assert "result" not in payload
 
     script = Path("smartrisk/web/results.js").read_text(encoding="utf-8")
-    assert "renderOverview(job);" in script
+    assert "renderOverview(report);" in script
     assert "renderOverview(job.result);" not in script

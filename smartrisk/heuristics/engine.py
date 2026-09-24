@@ -50,6 +50,7 @@ class HeuristicsEngine:
         rpc_log_concurrency: int = 4,
         max_log_chunk_blocks: int = 1_500,
         probe_concurrency: int = 4,
+        pair_concurrency: int = 2,
     ) -> HeuristicsRun:
         run_id = run_id or str(uuid.uuid4())
         network = get_network(chain_id)
@@ -185,6 +186,8 @@ class HeuristicsEngine:
             max_pairs=max_pairs,
             max_holder_contract_probes=max_holder_contract_probes,
             probe_concurrency=probe_concurrency,
+            pair_concurrency=pair_concurrency,
+            log_concurrency=rpc_log_concurrency,
         )
         if intelligence is not None:
             fingerprints = intelligence.payload.get("scam_fingerprints", {})
