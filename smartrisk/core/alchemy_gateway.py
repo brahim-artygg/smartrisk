@@ -5,17 +5,33 @@ import json
 import time
 import threading
 import uuid
+from dataclasses import dataclass
 from typing import Any
 
 from ..state_fork.alchemy_rpc import AlchemyRpcClient
 from .evidence_store import SQLiteEvidenceStore
 from .models import RawAlchemyEvidence
+from .reasons import reason_code_for_exception
+
+
+@dataclass
+class RequestBudget:
+    """Per-scan logical RPC-call budget; cache hits do not consume it."""
+
+    cap: int
+    used: int = 0
+
+    def reserve(self) -> bool:
+        if self.used >= max(0, int(self.cap)):
+            return False
+        self.used += 1
+        return True
 
 
 class AlchemyGateway:
     """Shared Alchemy boundary: cache, raw evidence, capability probes and RPC helpers."""
 
-    def __init__(self, rpc: AlchemyRpcClient | None = None, cache_ttl_seconds: int = 30, max_cache_entries: int = 2048, evidence_store: SQLiteEvidenceStore | None = None):
+    def __init__(self, rpc: AlchemyRpcClient | None = None, cache_ttl_seconds: int = 30, max_cache_entries: int = 2048, evidence_store: SQLiteEvidenceStore | None = None, request_budget: RequestBudget | None = None):
         self.rpc = rpc or AlchemyRpcClient()
         self.cache_ttl_seconds = cache_ttl_seconds
         self.evidence_store = evidence_store
@@ -29,6 +45,7 @@ class AlchemyGateway:
         self.rate_limit_events = 0
         self.trace_calls = 0
         self.trace_successes = 0
+        self.request_budget = request_budget
 
     def call(self, method: str, params: list[Any] | None = None, anchor: Any | None = None, use_cache: bool = True) -> tuple[Any, RawAlchemyEvidence]:
         params = params or []
@@ -43,6 +60,14 @@ class AlchemyGateway:
             if self.evidence_store is not None:
                 self.evidence_store.put(evidence)
             return result, evidence
+        if self.request_budget is not None and getattr(self.rpc, "request_budget", None) is not self.request_budget and not self.request_budget.reserve():
+            request_id = str(uuid.uuid4())
+            error = f"RPC budget cap exceeded ({self.request_budget.cap})"
+            evidence = RawAlchemyEvidence.create(method, request_id, params, None, provider=getattr(self.rpc, "provider_name", "alchemy"), chain_id=getattr(anchor, "chain_id", None), block_number=getattr(anchor, "block_number", None), block_hash=getattr(anchor, "block_hash", None), error=error, reason_code="RPC_BUDGET_EXCEEDED", latency_ms=0.0)
+            self.evidence.append(evidence)
+            if self.evidence_store is not None:
+                self.evidence_store.put(evidence)
+            raise RuntimeError(error)
         self.cache_misses += 1
         self.request_count += 1
         request_id = str(uuid.uuid4())
@@ -66,7 +91,7 @@ class AlchemyGateway:
         except Exception as exc:
             if "429" in str(exc) or "rate" in str(exc).lower():
                 self.rate_limit_events += 1
-            evidence = RawAlchemyEvidence.create(method, request_id, params, None, provider=getattr(self.rpc, "last_provider", getattr(self.rpc, "provider_name", "alchemy")), chain_id=getattr(anchor, "chain_id", None), block_number=getattr(anchor, "block_number", None), block_hash=getattr(anchor, "block_hash", None), error=str(exc), latency_ms=round((time.perf_counter() - started) * 1000, 3))
+            evidence = RawAlchemyEvidence.create(method, request_id, params, None, provider=getattr(self.rpc, "last_provider", getattr(self.rpc, "provider_name", "alchemy")), chain_id=getattr(anchor, "chain_id", None), block_number=getattr(anchor, "block_number", None), block_hash=getattr(anchor, "block_hash", None), error=str(exc), reason_code=reason_code_for_exception(exc), latency_ms=round((time.perf_counter() - started) * 1000, 3))
             self.evidence.append(evidence)
             if self.evidence_store is not None:
                 self.evidence_store.put(evidence)

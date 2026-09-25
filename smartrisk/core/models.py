@@ -85,6 +85,7 @@ class RawAlchemyEvidence:
     page_key: str | None = None
     removed: bool = False
     error: str | None = None
+    reason_code: str | None = None
     latency_ms: float | None = None
 
     @classmethod

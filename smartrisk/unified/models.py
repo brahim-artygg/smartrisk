@@ -81,6 +81,7 @@ class UnifiedRiskReport:
     evidence_graph: dict[str, Any] = field(default_factory=dict)
     checks: list[dict[str, Any]] = field(default_factory=list)
     scan_budget: dict[str, Any] = field(default_factory=dict)
+    ai_explanation: dict[str, Any] | None = None
     unknowns: list[str] = field(default_factory=list)
     assumptions: list[str] = field(default_factory=list)
     versions: dict[str, str] = field(default_factory=dict)
@@ -111,6 +112,7 @@ class UnifiedRiskReport:
             "evidence_graph": self.evidence_graph,
             "checks": self.checks,
             "scan_budget": self.scan_budget,
+            "ai_explanation": self.ai_explanation,
             "unknowns": self.unknowns,
             "assumptions": self.assumptions,
             "versions": self.versions,

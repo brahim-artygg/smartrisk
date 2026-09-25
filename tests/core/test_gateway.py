@@ -1,4 +1,6 @@
-from smartrisk.core.alchemy_gateway import AlchemyGateway
+import pytest
+
+from smartrisk.core.alchemy_gateway import AlchemyGateway, RequestBudget
 from smartrisk.core.models import AnalysisJob, RawAlchemyEvidence, UnifiedAnchor
 
 
@@ -84,3 +86,13 @@ def test_gateway_exposes_block_and_trace_helpers():
     gateway.get_trace("0xtx")
     methods = {item.method for item in gateway.evidence}
     assert {"eth_getBlockByNumber", "eth_getTransactionCount", "debug_traceTransaction"}.issubset(methods)
+
+
+def test_gateway_hard_caps_uncached_rpc_calls_and_codes_the_failure():
+    rpc = FakeRpc()
+    gateway = AlchemyGateway(rpc, request_budget=RequestBudget(1))
+    gateway.call("eth_getCode", ["0xtoken", "0x64"])
+    with pytest.raises(RuntimeError, match="budget cap exceeded"):
+        gateway.call("eth_getBalance", ["0xtoken", "0x64"], use_cache=False)
+    assert len(rpc.calls) == 1
+    assert gateway.evidence[-1].reason_code == "RPC_BUDGET_EXCEEDED"

@@ -26,6 +26,7 @@ class AlchemyRpcClient:
         timeout_seconds: float = 20.0,
         retries: int = 2,
         failover: bool = True,
+        request_budget: Any | None = None,
     ):
         self.network = get_network(chain)
         self.chain = self.network.rpc_chain
@@ -33,6 +34,7 @@ class AlchemyRpcClient:
         self.api_key = api_key or os.getenv("ALCHEMY_API_KEY")
         self.timeout_seconds = timeout_seconds
         self.retries = retries
+        self.request_budget = request_budget
         self._rpc_url = rpc_url or self._url_from_env()
         self._router = None
         if rpc_url is None and failover:
@@ -90,6 +92,8 @@ class AlchemyRpcClient:
         return None
 
     def request(self, method: str, params: list[Any] | None = None) -> Any:
+        if self.request_budget is not None and not self.request_budget.reserve():
+            raise AlchemyRpcError(f"RPC budget cap exceeded ({self.request_budget.cap})")
         if self._router is not None:
             return self._router.request(method, params)
         if not self._rpc_url:

@@ -63,6 +63,23 @@ def _text(value: Any, default: str = "", limit: int = 500) -> str:
     return text[:limit]
 
 
+def _reason_code_for_text(value: str) -> str:
+    text = value.lower()
+    if "budget" in text or "cap exceeded" in text:
+        return "RPC_BUDGET_EXCEEDED"
+    if "timeout" in text:
+        return "RPC_TIMEOUT"
+    if "429" in text or "rate" in text:
+        return "RPC_RATE_LIMITED"
+    if "log" in text:
+        return "RPC_LOGS_UNAVAILABLE"
+    if "market" in text or "dexscreener" in text:
+        return "MARKET_DATA_UNAVAILABLE"
+    if "anchor" in text:
+        return "ANCHOR_UNAVAILABLE"
+    return "EVIDENCE_UNAVAILABLE"
+
+
 def _network_name(chain_id: Any) -> str | None:
     if chain_id in (None, ""):
         return None
@@ -94,6 +111,22 @@ def _public_check(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _public_ai_explanation(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    return {
+        "status": _text(value.get("status"), "unavailable", 30),
+        "model": _text(value.get("model"), "", 80) or None,
+        "summary": _text(value.get("summary"), "", 1200) or None,
+        "key_findings": [
+            {"title": _text(item.get("title"), "Finding", 180), "explanation": _text(item.get("explanation"), "", 500), "check_id": _text(item.get("check_id"), "", 100), "evidence_refs": [_text(ref, "", 180) for ref in (item.get("evidence_refs") or [])[:8]]}
+            for item in (value.get("key_findings") or [])[:5] if isinstance(item, dict)
+        ],
+        "evidence_gaps": [_text(item, "", 300) for item in (value.get("evidence_gaps") or [])[:8]],
+        "limitations": [_text(item, "", 300) for item in (value.get("limitations") or [])[:8]],
+    }
+
+
 def format_public_result(job: dict[str, Any], *, base_path: str = "/scan") -> dict[str, Any]:
     """Return a minimal, user-facing representation of an Embed scan.
 
@@ -122,6 +155,7 @@ def format_public_result(job: dict[str, Any], *, base_path: str = "/scan") -> di
             "unknowns_count": len(engine.get("unknowns") or []),
         })
     unknowns = [_text(item, "Unknown evidence", 240) for item in (report.get("unknowns") or [])]
+    unknown_details = [{"reason_code": _reason_code_for_text(item), "message": item} for item in unknowns[:8]]
     checks = [_public_check(item) for item in (report.get("checks") or []) if isinstance(item, dict)]
 
     dimensions: list[dict[str, Any]] = []
@@ -170,10 +204,14 @@ def format_public_result(job: dict[str, Any], *, base_path: str = "/scan") -> di
             "alchemy_request_cap": (report.get("scan_budget") or {}).get("alchemy_request_cap"),
             "max_pairs": (report.get("scan_budget") or {}).get("max_pairs"),
             "max_log_chunks": (report.get("scan_budget") or {}).get("max_log_chunks"),
+            "alchemy_requests_used": (report.get("scan_budget") or {}).get("alchemy_requests_used"),
+            "alchemy_budget_exhausted": bool((report.get("scan_budget") or {}).get("alchemy_budget_exhausted", False)),
         },
+        "ai_explanation": _public_ai_explanation(report.get("ai_explanation")),
         "risk_dimensions": dimensions[:6],
         "engine_statuses": engine_statuses[:6],
         "unknowns": unknowns[:8],
+        "unknown_details": unknown_details,
         "unknowns_count": len(unknowns),
         "upgrade_available": True,
     }

@@ -6,9 +6,11 @@ from typing import Any, Callable
 
 from ..heuristics.engine import HeuristicsEngine
 from ..core.models import AnalysisJob, SourceBundle, UnifiedAnchor
+from ..core.alchemy_gateway import AlchemyGateway, RequestBudget
 from ..state_fork.engine import StateForkEngine
 from ..state_fork.alchemy_rpc import AlchemyRpcClient
 from ..core.networks import get_network
+from ..ai import AIExplainer
 from ..heuristics.alchemy_source import AlchemySource
 from ..static_engine.engine import StaticEngine
 from .models import CheckResult, EngineSummary, UnifiedRequest, UnifiedRiskReport
@@ -61,18 +63,22 @@ class UnifiedRiskEngine:
         active_heuristics = self.heuristics
         active_fork = self.fork
         profile = get_scan_profile(request.scan_profile)
+        rpc_budget = RequestBudget(profile.max_rpc_requests)
         effective_window = clamp_window(request.window_blocks, profile)
         network = get_network(request.chain_id) if request.chain_id else None
         if network is not None:
             heuristic_source = getattr(self.heuristics, "alchemy", None)
             heuristic_rpc = getattr(heuristic_source, "rpc", None)
-            if heuristic_rpc is not None and getattr(heuristic_rpc, "chain", None) != network.rpc_chain:
+            if heuristic_rpc is not None and isinstance(heuristic_source, AlchemySource):
+                scan_rpc = heuristic_rpc if getattr(heuristic_rpc, "chain", None) == network.rpc_chain else AlchemyRpcClient(
+                    chain=network.rpc_chain,
+                    timeout_seconds=profile.rpc_timeout_seconds,
+                    retries=profile.rpc_retries,
+                )
+                if hasattr(scan_rpc, "request_budget"):
+                    scan_rpc.request_budget = rpc_budget
                 active_heuristics = HeuristicsEngine(
-                    alchemy=AlchemySource(rpc=AlchemyRpcClient(
-                        chain=network.rpc_chain,
-                        timeout_seconds=profile.rpc_timeout_seconds,
-                        retries=profile.rpc_retries,
-                    )),
+                    alchemy=AlchemySource(rpc=scan_rpc, gateway=AlchemyGateway(rpc=scan_rpc, request_budget=rpc_budget)),
                     dexscreener=self.heuristics.dexscreener,
                     extractor=self.heuristics.extractor,
                     rules=self.heuristics.rules,
@@ -89,9 +95,11 @@ class UnifiedRiskEngine:
             fork_rpc = getattr(self.fork, "rpc", None)
             if fork_rpc is not None and getattr(fork_rpc, "chain", None) != network.rpc_chain:
                 active_fork = StateForkEngine(
-                    rpc=AlchemyRpcClient(chain=network.rpc_chain, timeout_seconds=profile.rpc_timeout_seconds, retries=profile.rpc_retries),
+                    rpc=AlchemyRpcClient(chain=network.rpc_chain, timeout_seconds=profile.rpc_timeout_seconds, retries=profile.rpc_retries, request_budget=rpc_budget),
                     fork=self.fork,
                 )
+            elif fork_rpc is not None and hasattr(fork_rpc, "request_budget"):
+                fork_rpc.request_budget = rpc_budget
         if effective_block_number is None and request.chain_id:
             source = getattr(active_heuristics, "alchemy", None)
             anchor_fn = getattr(source, "anchor", None)
@@ -255,7 +263,17 @@ class UnifiedRiskEngine:
             "max_holder_contract_probes": profile.max_holder_contract_probes,
             "state_fork_included": "state_fork" in requested_engines,
             "static_included": "static_ast" in requested_engines,
+            "alchemy_requests_used": rpc_budget.used,
+            "alchemy_budget_exhausted": rpc_budget.used >= rpc_budget.cap,
         }
+        ai_explanation = AIExplainer().explain({
+            "risk": {"score": score, "band": band, "confidence": confidence, "coverage": coverage},
+            "verdict": {"code": verdict, "label": verdict_label, "primary_detection": primary_detection},
+            "findings": findings,
+            "checks": [item.to_dict() for item in checks],
+            "unknowns": sorted(set(unknowns)),
+            "assumptions": assumptions,
+        })
         progress("complete", 100)
         return UnifiedRiskReport(
             run_id=run_id,
@@ -277,6 +295,7 @@ class UnifiedRiskEngine:
             evidence_graph=evidence_graph,
             checks=[item.to_dict() for item in checks],
             scan_budget=scan_budget,
+            ai_explanation=ai_explanation,
             unknowns=sorted(set(unknowns)),
             assumptions=assumptions,
             versions={"release": "0.9.0", "unified": self.VERSION, "static": "0.3.1", "fork": "0.9.0", "heuristics": "0.4.0", "intelligence": "0.5.0"},
@@ -298,7 +317,13 @@ class UnifiedRiskEngine:
                 return CheckResult(check_id, label, "passed", item.get("value"), source=source, evidence_refs=item.get("evidence_refs", []), coverage=float(item.get("coverage") or 0.0), included_in_score=True)
             if not (request.chain_id and request.token_address):
                 return CheckResult(check_id, label, "not_tested", reason_code="MISSING_INPUT", reason="Chain and contract address are required.", source=source)
-            return CheckResult(check_id, label, "unknown", reason_code="EVIDENCE_UNAVAILABLE", reason=not_tested or "The requested evidence was not available.", source=source)
+            reason_code = {
+                "market.best_pair": "MARKET_DATA_UNAVAILABLE",
+                "holders.concentration": "RPC_LOGS_UNAVAILABLE",
+                "history.activity": "RPC_LOGS_UNAVAILABLE",
+                "controls.owner": "RPC_CALL_UNAVAILABLE",
+            }.get(check_id, "EVIDENCE_UNAVAILABLE")
+            return CheckResult(check_id, label, "unknown", reason_code=reason_code, reason=not_tested or "The requested evidence was not available.", source=source)
 
         checks = [
             metric("contract.bytecode", "Contract bytecode", "chain.token_has_code", ["alchemy"]),
