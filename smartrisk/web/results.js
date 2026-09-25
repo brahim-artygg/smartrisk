@@ -53,12 +53,29 @@ function feature(features, id) {
   return first(features, item => item?.feature_id === id)?.value;
 }
 
+// Public (free) reports carry a curated `metrics` map instead of engine payloads.
+function featuresFor(report) {
+  if (Array.isArray(report?.engines)) return featuresOf(heuristicSummary(report));
+  return Object.entries(report?.metrics || {}).map(([feature_id, value]) => ({ feature_id, value }));
+}
+
+function engineStatus(report, name) {
+  const list = Array.isArray(report?.engines) ? report.engines : (report?.engine_statuses || []);
+  return first(list, item => item?.name === name)?.status;
+}
+
 function heuristicSummary(report) {
   return first(report?.engines, item => item?.name === 'heuristics');
 }
 
 function stateForkSummary(report) {
   return first(report?.engines, item => item?.name === 'state_fork');
+}
+
+function publicSignals(report) {
+  if (Array.isArray(report?.signals)) return report.signals;
+  if (Array.isArray(report?.findings)) return report.findings;
+  return [];
 }
 
 function featureText(value, unit) {
@@ -99,7 +116,8 @@ function renderGauge(report) {
 }
 
 function renderBadges(report) {
-  const dimensions = report?.risk_dimensions || {};
+  const rawDimensions = report?.risk_dimensions || {};
+  const dimensions = Array.isArray(rawDimensions) ? Object.fromEntries(rawDimensions.map(item => [item.id, item])) : rawDimensions;
   const badgeData = [
     ['Source', dimensions.contract_security, 'contract_security'],
     ['Controls', dimensions.ownership_security, 'ownership_security'],
@@ -114,42 +132,45 @@ function renderBadges(report) {
     return `<span class="top-badge ${tone}"><i></i>${esc(label)}</span>`;
   }).join('');
 
-  const engines = Array.isArray(report?.engines) ? report.engines : [];
+  const feats = featuresFor(report);
+  const has = id => feature(feats, id) !== undefined;
   const pills = [
-    ['Source', engines.some(e => e.name === 'static_ast' && e.status === 'complete')],
-    ['Controls', engines.some(e => e.name === 'static_ast' && e.status === 'complete') || engines.some(e => e.name === 'heuristics' && e.status === 'complete')],
-    ['Trading', engines.some(e => e.name === 'state_fork' && e.status === 'complete')],
-    ['Liquidity', feature(featuresOf(heuristicSummary(report)), 'liquidity.pair_count_analyzed') !== undefined || feature(featuresOf(heuristicSummary(report)), 'market.best_liquidity_usd') !== undefined],
-    ['Holders', feature(featuresOf(heuristicSummary(report)), 'holders.holder_count') !== undefined],
-    ['History', feature(featuresOf(heuristicSummary(report)), 'history.transfer_count') !== undefined],
+    ['Source', engineStatus(report, 'static_ast') === 'complete'],
+    ['Controls', engineStatus(report, 'static_ast') === 'complete' || has('contract.owner_observed') || has('contract.proxy_detected')],
+    ['Trading', engineStatus(report, 'state_fork') === 'complete'],
+    ['Liquidity', has('liquidity.pair_count_analyzed') || has('market.best_liquidity_usd')],
+    ['Holders', has('holders.holder_count')],
+    ['History', has('history.transfer_count')],
   ];
   els.sourceStrip.innerHTML = pills.map(([label, ready]) => `<span class="coverage-pill ${ready ? '' : 'neutral'}"><i></i>${esc(label)}</span>`).join('');
 }
 
 function renderOverview(report) {
-  const heuristic = heuristicSummary(report);
-  const features = featuresOf(heuristic);
-  const fork = stateForkSummary(report);
+  const isPublic = !Array.isArray(report?.engines);
+  const features = featuresFor(report);
   const verdict = report?.verdict || {};
   const risk = report?.risk || {};
-  const primary = verdict?.primary_detection || {};
+  const primary = verdict?.primary_detection || report?.primary_detection || {};
 
   renderGauge(risk);
 
   const request = window.__scanRequest || {};
-  const chainId = request.chain_id;
-  els.networkName.textContent = networkNames.get(String(chainId)) || (chainId ? `Chain ${chainId}` : 'Network unknown');
-  els.contractAddress.textContent = request.token_address || 'Contract address unavailable';
+  const chainId = request.chain_id || report?.chain_id;
+  els.networkName.textContent = networkNames.get(String(chainId)) || report?.network || (chainId ? `Chain ${chainId}` : 'Network unknown');
+  els.contractAddress.textContent = request.token_address || report?.address || 'Contract address unavailable';
 
   els.riskTitle.textContent = verdict.label || 'UNVERIFIED';
   els.riskExplanation.textContent = primary.explanation || primary.title || 'SmartRisk did not produce a stronger primary detection from the available evidence.';
 
-  const forkComplete = fork?.status === 'complete';
+  const forkStatus = engineStatus(report, 'state_fork');
+  const forkComplete = forkStatus === 'complete';
   const honeypotDetected = verdict.code === 'HONEYPOT_DETECTED';
   if (honeypotDetected) {
     setCard(els.honeypotCard, els.honeypotStatus, els.honeypotDetail, 'bad', 'Sell blocked', 'A sell restriction was reproduced after a successful buy in the anchored fork.');
   } else if (forkComplete) {
     setCard(els.honeypotCard, els.honeypotStatus, els.honeypotDetail, 'good', 'No sell block detected', 'State-Fork trading checks completed for the selected scenarios.');
+  } else if (!forkStatus || forkStatus === 'unknown') {
+    setCard(els.honeypotCard, els.honeypotStatus, els.honeypotDetail, 'neutral', 'Not simulated', 'The buy/sell simulation is part of the full scan, not the free check.');
   } else {
     setCard(els.honeypotCard, els.honeypotStatus, els.honeypotDetail, 'neutral', 'Not verified', 'State-Fork evidence is incomplete or unavailable.');
   }
@@ -195,9 +216,13 @@ function renderOverview(report) {
   );
 
   renderBadges(report);
-  renderPermissions(report, features);
-  renderVulnerabilities(report);
-  renderTechnical(report);
+  if (isPublic) {
+    renderPublicSummary(report);
+  } else {
+    renderPermissions(report, features);
+    renderVulnerabilities(report);
+    renderTechnical(report);
+  }
 
   const version = report?.versions?.release || '0.9.0';
   const coverage = risk?.coverage == null ? null : `${Math.round(Number(risk.coverage) * 100)}% coverage`;
@@ -219,7 +244,7 @@ function renderPermissions(report, features) {
 }
 
 function renderVulnerabilities(report) {
-  const findings = Array.isArray(report?.findings) ? [...report.findings] : [];
+  const findings = [...publicSignals(report)];
   findings.sort((a, b) => {
     const rank = { critical: 0, high: 1, medium: 2, low: 3 };
     return (rank[String(a.severity || '').toLowerCase()] ?? 9) - (rank[String(b.severity || '').toLowerCase()] ?? 9);
@@ -237,6 +262,44 @@ function renderVulnerabilities(report) {
       </div>
       <div class="data-value">${esc(item.status || 'observed')}</div>
     </div>`).join('')}</div>`;
+}
+
+
+function renderPublicSummary(report) {
+  const signals = publicSignals(report).slice(0, 5);
+  const dimensions = Array.isArray(report?.risk_dimensions) ? report.risk_dimensions : [];
+  const engines = Array.isArray(report?.engine_statuses) ? report.engine_statuses : [];
+  const unknowns = Array.isArray(report?.unknowns) ? report.unknowns : [];
+  els.permissionsContent.innerHTML = `<div class="rows"><div class="data-row"><div class="data-main"><div class="data-title">Verification</div><div class="data-sub">Coverage and confidence reflect the available public scan evidence.</div></div><div class="data-value">${esc(report?.risk?.coverage == null ? 'Unknown' : `${Math.round(Number(report.risk.coverage) * 100)}%`)}</div></div></div>`;
+  els.vulnerabilitiesContent.innerHTML = signals.length ? `<div class="rows">${signals.map(item => `<div class="data-row"><div class="data-main"><div class="data-title">${esc(item.title || 'Risk signal')}<span class="severity ${esc(String(item.severity || '').toLowerCase())}">${esc(item.severity || 'signal')}</span></div><div class="data-sub">${esc(item.description || '')}</div></div><div class="data-value">${esc(item.status || 'observed')}</div></div>`).join('')}</div>` : '<div class="empty-state">No major signals were returned in the current scan.</div>';
+  const feats = featuresFor(report);
+  const m = id => feature(feats, id);
+  const yn = v => (v === undefined ? null : v ? 'Yes' : 'No');
+  const measureRows = [
+    ['Best liquidity', m('market.best_liquidity_usd') === undefined ? null : featureText(m('market.best_liquidity_usd'), 'usd'), 'Market data (DexScreener)'],
+    ['24h volume', m('market.volume_h24_usd') === undefined ? null : featureText(m('market.volume_h24_usd'), 'usd'), 'Market data (DexScreener)'],
+    ['24h buys / sells', m('market.buys_h24') === undefined ? null : `${featureText(m('market.buys_h24'), 'count')} / ${featureText(m('market.sells_h24'), 'count')}`, 'Market data (DexScreener)'],
+    ['Pairs found', m('market.pair_count') === undefined ? null : featureText(m('market.pair_count'), 'count'), 'Market data (DexScreener)'],
+    ['Top LP holder share', m('liquidity.max_lp_top1_share') === undefined ? null : featureText(m('liquidity.max_lp_top1_share'), 'ratio'), 'On-chain LP distribution'],
+    ['Holders (recent window)', m('holders.holder_count') === undefined ? null : featureText(m('holders.holder_count'), 'count'), 'On-chain transfers'],
+    ['Top 10 / top 20 concentration', m('holders.top10_concentration') === undefined ? null : `${featureText(m('holders.top10_concentration'), 'ratio')} / ${m('holders.top20_concentration') === undefined ? '—' : featureText(m('holders.top20_concentration'), 'ratio')}`, 'On-chain transfers'],
+    ['Recent transfers', m('history.transfer_count') === undefined ? null : featureText(m('history.transfer_count'), 'count'), 'On-chain transfers'],
+    ['Owner function observed', yn(m('contract.owner_observed')), 'Contract call'],
+    ['Admin role observed', yn(m('contract.admin_observed')), 'Contract call'],
+    ['Upgradeable proxy', yn(m('contract.proxy_detected')), 'Bytecode / EIP-1967'],
+	  ].filter(row => row[1] !== null);
+	  const measureHtml = measureRows.map(([title, value, source]) => `<div class="data-row"><div class="data-main"><div class="data-title">${esc(title)}</div><div class="data-sub">${esc(source)}</div></div><div class="data-value">${esc(value)}</div></div>`).join('');
+	  const checks = Array.isArray(report?.checks) ? report.checks : [];
+	  const checkHtml = checks.map(item => {
+	    const state = String(item.state || 'unknown').toLowerCase();
+	    const detail = item.reason || (item.included_in_score ? 'Included in the quick risk score.' : 'Not included in the current score.');
+	    return `<div class="data-row"><div class="data-main"><div class="data-title">${esc(item.label || item.check_id || 'Check')}</div><div class="data-sub">${esc(detail)}${item.source?.length ? ` · Source: ${esc(item.source.join(', '))}` : ''}</div></div><div class="data-value">${esc(state)}</div></div>`;
+	  }).join('');
+	  const engineRows = engines.map(item => `<div class="data-row"><div class="data-main"><div class="data-title">${esc(item.name || 'Engine')}</div><div class="data-sub">${esc(item.unknowns_count ? `${item.unknowns_count} evidence gap(s)` : 'Evidence returned')}</div></div><div class="data-value">${esc(item.status || 'unknown')}</div></div>`).join('');
+	  const unknownRows = unknowns.slice(0, 6).map(item => `<div class="data-row"><div class="data-main"><div class="data-title">Evidence gap</div><div class="data-sub">${esc(item)}</div></div><div class="data-value">Review</div></div>`).join('');
+	  const budget = report?.scan_budget || {};
+	  const budgetHtml = budget.profile ? `<div class="data-row"><div class="data-main"><div class="data-title">Scan profile</div><div class="data-sub">Quick check budget: ${esc(budget.alchemy_request_cap ?? 'capped')} Alchemy request(s) maximum</div></div><div class="data-value">${esc(budget.profile)}</div></div>` : '';
+	  els.technicalContent.innerHTML = `<div class="rows">${checkHtml}${measureHtml}${engineRows}${dimensions.map(item => `<div class="data-row"><div class="data-main"><div class="data-title">${esc(item.label || item.id || 'Risk dimension')}</div><div class="data-sub">${esc(item.severity || 'unknown')} · ${esc(item.signals == null ? 'No signal count' : `${item.signals} signal(s)`)}</div></div><div class="data-value">Public</div></div>`).join('')}${unknownRows}${budgetHtml}<div class="data-row"><div class="data-main"><div class="data-title">Full report</div><div class="data-sub">Available through an eligible paid API key.</div></div><div class="data-value">Locked</div></div></div>`;
 }
 
 function renderTechnical(report) {
@@ -295,12 +358,20 @@ async function loadResult() {
     showError(job.error || 'The scan failed.');
     return;
   }
-  if (!job.result) {
+  // /v1/scans/:id intentionally returns the public report envelope directly
+  // (risk, verdict, signals, dimensions). It does not expose the internal
+  // persisted `result` object. Keep the page contract aligned with that API.
+  const report = job.result || job;
+  if (!report.risk || !report.verdict) {
     showError('This scan does not contain a completed report yet.');
     return;
   }
-  window.__scanRequest = job.request || {};
-  renderOverview(job.result);
+  window.__scanRequest = {
+    ...(job.request || {}),
+    token_address: job.request?.token_address || job.address,
+    chain_id: job.request?.chain_id || job.chain_id,
+  };
+  renderOverview(report);
 }
 
 document.querySelectorAll('.module-card').forEach(button => {

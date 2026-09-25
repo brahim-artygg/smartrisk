@@ -16,6 +16,37 @@ _DIMENSION_LABELS = {
     "historical_behavior": "Historical Behavior",
 }
 
+# Curated, non-sensitive measurements that the free report may show. The public
+# envelope used to drop every feature, so the results page could only ever render
+# "Not verified" for a clean token. Only scalar values from this allow-list leave the server.
+_PUBLIC_METRICS = (
+    "chain.token_has_code",
+    "market.best_liquidity_usd", "market.pair_count", "market.volume_h24_usd",
+    "market.buys_h24", "market.sells_h24", "market.pair_age_hours",
+    "liquidity.pair_count_analyzed", "liquidity.max_lp_top1_share", "liquidity.max_lp_burned_share",
+    "holders.holder_count", "holders.top10_concentration", "holders.top20_concentration",
+    "holders.deployer_candidate_share",
+    "history.transfer_count", "history.unique_buyers", "history.unique_sellers",
+    "contract.owner_observed", "contract.admin_observed", "contract.proxy_detected",
+)
+
+
+def _public_metrics(report: dict[str, Any]) -> dict[str, Any]:
+    metrics: dict[str, Any] = {}
+    for engine in report.get("engines") or []:
+        if not isinstance(engine, dict) or engine.get("name") != "heuristics":
+            continue
+        features = ((engine.get("report") or {}).get("risk") or {}).get("features") or []
+        for item in features:
+            if not isinstance(item, dict):
+                continue
+            feature_id = item.get("feature_id")
+            value = item.get("value")
+            if feature_id in _PUBLIC_METRICS and value is not None and isinstance(value, (bool, int, float)):
+                metrics[feature_id] = value
+    return metrics
+
+
 _SEVERITY_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
 
 
@@ -48,6 +79,21 @@ def _public_finding(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _public_check(item: dict[str, Any]) -> dict[str, Any]:
+    """Keep check state explicit while excluding raw payloads and internal traces."""
+    return {
+        "check_id": _text(item.get("check_id"), "unknown", 100),
+        "label": _text(item.get("label"), "Check", 180),
+        "state": _text(item.get("state"), "unknown", 30).lower(),
+        "value": item.get("value"),
+        "reason_code": _text(item.get("reason_code"), "", 80) or None,
+        "reason": _text(item.get("reason"), "", 300) or None,
+        "source": [_text(source, "unknown", 60) for source in (item.get("source") or [])][:5],
+        "coverage": item.get("coverage", 0.0),
+        "included_in_score": bool(item.get("included_in_score", False)),
+    }
+
+
 def format_public_result(job: dict[str, Any], *, base_path: str = "/scan") -> dict[str, Any]:
     """Return a minimal, user-facing representation of an Embed scan.
 
@@ -64,6 +110,19 @@ def format_public_result(job: dict[str, Any], *, base_path: str = "/scan") -> di
 
     findings = [item for item in (report.get("findings") or []) if isinstance(item, dict)]
     findings.sort(key=lambda item: _SEVERITY_RANK.get(str(item.get("severity") or "").lower(), 9))
+    engine_statuses = []
+    for engine in report.get("engines") or []:
+        if not isinstance(engine, dict):
+            continue
+        engine_statuses.append({
+            "name": _text(engine.get("name"), "unknown", 60),
+            "status": _text(engine.get("status"), "unknown", 30).lower(),
+            "coverage": engine.get("coverage"),
+            "confidence": engine.get("confidence"),
+            "unknowns_count": len(engine.get("unknowns") or []),
+        })
+    unknowns = [_text(item, "Unknown evidence", 240) for item in (report.get("unknowns") or [])]
+    checks = [_public_check(item) for item in (report.get("checks") or []) if isinstance(item, dict)]
 
     dimensions: list[dict[str, Any]] = []
     for key, value in (report.get("risk_dimensions") or {}).items():
@@ -81,7 +140,7 @@ def format_public_result(job: dict[str, Any], *, base_path: str = "/scan") -> di
         })
 
     return {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "job_id": job.get("job_id"),
         "status": job.get("status"),
         "address": address,
@@ -102,8 +161,19 @@ def format_public_result(job: dict[str, Any], *, base_path: str = "/scan") -> di
             "title": _text(primary.get("title") or primary.get("label"), "No primary detection", 180),
             "explanation": _text(primary.get("explanation") or primary.get("description"), "", 500),
         },
-        "signals": [_public_finding(item) for item in findings[:6]],
-        "risk_dimensions": dimensions[:8],
-        "unknowns_count": len(report.get("unknowns") or []),
-        "full_report_url": f"{base_path}/{job.get('job_id')}",
+        "metrics": _public_metrics(report),
+        "signals": [_public_finding(item) for item in findings[:5]],
+        "finding_count": len(findings),
+        "checks": checks,
+        "scan_budget": {
+            "profile": _text((report.get("scan_budget") or {}).get("profile"), "unknown", 50),
+            "alchemy_request_cap": (report.get("scan_budget") or {}).get("alchemy_request_cap"),
+            "max_pairs": (report.get("scan_budget") or {}).get("max_pairs"),
+            "max_log_chunks": (report.get("scan_budget") or {}).get("max_log_chunks"),
+        },
+        "risk_dimensions": dimensions[:6],
+        "engine_statuses": engine_statuses[:6],
+        "unknowns": unknowns[:8],
+        "unknowns_count": len(unknowns),
+        "upgrade_available": True,
     }

@@ -1,7 +1,26 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Any
+
+
+@dataclass
+class CheckResult:
+    """User-facing state for one check; missing data is never treated as false."""
+
+    check_id: str
+    label: str
+    state: str
+    value: Any = None
+    reason_code: str | None = None
+    reason: str | None = None
+    source: list[str] = field(default_factory=list)
+    evidence_refs: list[str] = field(default_factory=list)
+    coverage: float = 0.0
+    included_in_score: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 @dataclass
@@ -16,6 +35,7 @@ class UnifiedRequest:
     compiler_version: str | None = None
     window_blocks: int = 10_000
     deployer_address: str | None = None
+    scan_profile: str = "paid"
 
 
 @dataclass
@@ -59,6 +79,8 @@ class UnifiedRiskReport:
     evidence: list[dict[str, Any]] = field(default_factory=list)
     correlations: list[dict[str, Any]] = field(default_factory=list)
     evidence_graph: dict[str, Any] = field(default_factory=dict)
+    checks: list[dict[str, Any]] = field(default_factory=list)
+    scan_budget: dict[str, Any] = field(default_factory=dict)
     unknowns: list[str] = field(default_factory=list)
     assumptions: list[str] = field(default_factory=list)
     versions: dict[str, str] = field(default_factory=dict)
@@ -87,6 +109,8 @@ class UnifiedRiskReport:
             "evidence": self.evidence,
             "correlations": self.correlations,
             "evidence_graph": self.evidence_graph,
+            "checks": self.checks,
+            "scan_budget": self.scan_budget,
             "unknowns": self.unknowns,
             "assumptions": self.assumptions,
             "versions": self.versions,

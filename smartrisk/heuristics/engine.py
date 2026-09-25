@@ -45,6 +45,12 @@ class HeuristicsEngine:
         block_number: int | None = None,
         window_blocks: int = 10_000,
         deployer_address: str | None = None,
+        max_pairs: int = 5,
+        max_holder_contract_probes: int = 12,
+        rpc_log_concurrency: int = 4,
+        max_log_chunk_blocks: int = 1_500,
+        probe_concurrency: int = 4,
+        pair_concurrency: int = 2,
     ) -> HeuristicsRun:
         run_id = run_id or str(uuid.uuid4())
         network = get_network(chain_id)
@@ -76,8 +82,18 @@ class HeuristicsEngine:
 
         logs = None
         try:
-            logs = active_alchemy.get_logs(token_address, anchor, max(0, anchor.block_number - window_blocks), anchor.block_number)
+            try:
+                    logs = active_alchemy.get_logs(
+                        token_address, anchor, max(0, anchor.block_number - window_blocks), anchor.block_number,
+                        max_chunk_blocks=max_log_chunk_blocks, concurrency=rpc_log_concurrency,
+                        max_calls=max(1, int(max_log_chunk_blocks and (window_blocks // max_log_chunk_blocks + 1))),
+                    )
+            except TypeError:
+                logs = active_alchemy.get_logs(token_address, anchor, max(0, anchor.block_number - window_blocks), anchor.block_number)
             observations.append(logs)
+            payload = getattr(logs, "payload", None)
+            if isinstance(payload, dict) and payload.get("truncated"):
+                diagnostics.append("token transfer history was capped for this busy token; holder/history metrics reflect the most recent activity only")
         except Exception as exc:
             diagnostics.append(f"Alchemy logs lookup failed: {exc}")
 
@@ -163,15 +179,28 @@ class HeuristicsEngine:
                 Feature("contract.deferred_behavior_signal", token_address, any(item.get("category") == "deferred_behavior" for item in fp_items if isinstance(item, dict)), "boolean", "smartrisk-fingerprints", 0.72, 1.0, intelligence.observed_at, [intelligence.observation_id]),
             ])
 
-        intelligence_result = active_intelligence.analyze(
-            chain_id=chain_id,
-            token_address=token_address,
-            anchor=anchor,
-            token_logs=logs,
-            market_observation=market,
-            window_blocks=window_blocks,
-            deployer_address=deployer_address,
-        )
+        intelligence_kwargs = {
+            "chain_id": chain_id,
+            "token_address": token_address,
+            "anchor": anchor,
+            "token_logs": logs,
+            "market_observation": market,
+            "window_blocks": window_blocks,
+            "deployer_address": deployer_address,
+            "max_pairs": max_pairs,
+            "max_holder_contract_probes": max_holder_contract_probes,
+            "probe_concurrency": probe_concurrency,
+            "pair_concurrency": pair_concurrency,
+            "log_concurrency": rpc_log_concurrency,
+        }
+        try:
+            intelligence_result = active_intelligence.analyze(**intelligence_kwargs)
+        except TypeError as exc:
+            if "unexpected keyword argument" not in str(exc):
+                raise
+            for key in ("probe_concurrency", "pair_concurrency", "log_concurrency"):
+                intelligence_kwargs.pop(key, None)
+            intelligence_result = active_intelligence.analyze(**intelligence_kwargs)
         if intelligence is not None:
             fingerprints = intelligence.payload.get("scam_fingerprints", {})
             fp_items = fingerprints.get("items", []) if isinstance(fingerprints, dict) else []
