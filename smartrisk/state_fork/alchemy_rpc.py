@@ -43,6 +43,7 @@ class AlchemyRpcClient:
                 router = MultiProviderRpc.from_environment(chain=chain, timeout_seconds=timeout_seconds, retries_per_provider=max(0, retries - 1))
                 if len(router.providers) >= 2:
                     self._router = router
+                    router.request_budget = request_budget
                     self._rpc_url = None
             except (ImportError, TypeError, RuntimeError):
                 self._router = None
@@ -93,8 +94,6 @@ class AlchemyRpcClient:
 
     def request(self, method: str, params: list[Any] | None = None) -> Any:
         if self._router is not None:
-            if self.request_budget is not None and not self.request_budget.reserve():
-                raise AlchemyRpcError(f"RPC budget cap exceeded ({self.request_budget.cap})")
             return self._router.request(method, params)
         if not self._rpc_url:
             raise AlchemyRpcError("ALCHEMY_API_KEY or ALCHEMY_RPC_URL is required")

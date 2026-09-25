@@ -164,6 +164,9 @@ class MultiProviderRpc:
             now = time.monotonic()
             if now < health.open_until or health.method_unavailable_until.get(method, 0.0) > now:
                 continue
+            request_budget = getattr(self, "request_budget", None)
+            if request_budget is not None and not request_budget.reserve():
+                raise ProviderUnavailable(f"RPC budget cap exceeded ({request_budget.cap})")
             health.requests += 1
             started = time.perf_counter()
             try:
